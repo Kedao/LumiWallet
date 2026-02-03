@@ -1,0 +1,20 @@
+{
+  "name": "lumi-wallet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent-powered Smart Wallet Chrome Extension for Monad",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kedao/LumiWallet.git"
+  },
+  "keywords": [
+    "wallet",
+    "chrome-extension",
+    "blockchain",
+    "monad",
+    "ai-agent",
+    "web3"
+  ],
+  "author": "WalletLab",
+  "license": "MIT"
+}
