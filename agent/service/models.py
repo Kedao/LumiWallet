@@ -17,16 +17,17 @@ class LifecycleInfo(BaseModel):
     gas_funder: Optional[str] = None
 
 
-class TxStats(BaseModel):
-    window: Optional[str] = None
-    tx_count: Optional[int] = None
-    in_count: Optional[int] = None
-    out_count: Optional[int] = None
-    in_out_ratio: Optional[float] = None
-    fast_outflow_pct: Optional[float] = None
-    median_hold_time_sec: Optional[int] = None
-    approve_count: Optional[int] = None
-    contract_interactions: Optional[int] = None
+# NOTE: TxStats requires aggregation; enable when frontend can provide stats.
+# class TxStats(BaseModel):
+#     window: Optional[str] = None
+#     tx_count: Optional[int] = None
+#     in_count: Optional[int] = None
+#     out_count: Optional[int] = None
+#     in_out_ratio: Optional[float] = None
+#     fast_outflow_pct: Optional[float] = None
+#     median_hold_time_sec: Optional[int] = None
+#     approve_count: Optional[int] = None
+#     contract_interactions: Optional[int] = None
 
 
 class AccountTransaction(BaseModel):
@@ -45,10 +46,11 @@ class AccountTransaction(BaseModel):
     success: Optional[bool] = None
 
 
-class GraphSignals(BaseModel):
-    cluster_score: Optional[float] = None
-    hops_to_tagged: Optional[int] = None
-    similar_addresses: Optional[List[str]] = None
+# NOTE: Graph signals require address graph indexing; enable when available.
+# class GraphSignals(BaseModel):
+#     cluster_score: Optional[float] = None
+#     hops_to_tagged: Optional[int] = None
+#     similar_addresses: Optional[List[str]] = None
 
 
 class PhishingRiskRequest(BaseModel):
@@ -61,8 +63,8 @@ class PhishingRiskRequest(BaseModel):
         default=None, description="Most recent up to 100 transactions"
     )
     lifecycle: Optional[LifecycleInfo] = None
-    tx_stats: Optional[TxStats] = None
-    graph: Optional[GraphSignals] = None
+    # tx_stats: Optional[TxStats] = None
+    # graph: Optional[GraphSignals] = None
     tags: Optional[List[TagInfo]] = None
     extra_features: Optional[Dict[str, Any]] = None
 
@@ -129,9 +131,14 @@ class ContractRiskRequest(BaseModel):
     extra_features: Optional[Dict[str, Any]] = None
 
 
+class OrderBookLevel(BaseModel):
+    price: str
+    amount: str
+
+
 class OrderBookStats(BaseModel):
-    bids: Optional[float] = None
-    asks: Optional[float] = None
+    bids: Optional[List[OrderBookLevel]] = None
+    asks: Optional[List[OrderBookLevel]] = None
     spread_bps: Optional[float] = None
 
 

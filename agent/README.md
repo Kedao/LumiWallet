@@ -31,7 +31,7 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
 **请求概述**
 - `POST /risk/phishing`
   - 用于钓鱼地址风险分析
-  - 主要输入：`address`，`interaction_type`，`transactions`（最近最多 100 笔），`lifecycle`，`tx_stats`，`graph`，`tags`
+  - 主要输入：`address`，`interaction_type`，`transactions`（最近最多 100 笔），`lifecycle`，`tags`
 - `POST /risk/contract`
   - 用于合约风险分析
   - 主要输入：`contract_address`，`interaction_type`，`code`，`creator`，`proxy`，`permissions`，`token_flags`，`tags`
@@ -62,20 +62,6 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
   - `lifecycle.active_days`：活跃天数
   - `lifecycle.account_age_days`：账户年龄（天）
   - `lifecycle.gas_funder`：初始 Gas 资助地址
-  - `tx_stats`：交易统计特征（可选）
-  - `tx_stats.window`：统计窗口（如 `24h`）
-  - `tx_stats.tx_count`：交易总数
-  - `tx_stats.in_count`：转入次数
-  - `tx_stats.out_count`：转出次数
-  - `tx_stats.in_out_ratio`：转入/转出比
-  - `tx_stats.fast_outflow_pct`：快速出金比例
-  - `tx_stats.median_hold_time_sec`：资金停留时间中位数
-  - `tx_stats.approve_count`：授权次数
-  - `tx_stats.contract_interactions`：合约交互次数
-  - `graph`：地址关联图谱信号
-  - `graph.cluster_score`：地址聚类相似度得分
-  - `graph.hops_to_tagged`：到标签地址的跳数
-  - `graph.similar_addresses`：相似地址列表
   - `tags`：第三方标签命中
   - `tags[].source`：标签来源
   - `tags[].label`：标签名称
@@ -126,9 +112,13 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
   - `trade_type`：`exact_in` / `exact_out`
   - `interaction_type`：交互类型，默认 `swap`
   - `orderbook`：订单簿信息
-  - `orderbook.bids`：买单量
-  - `orderbook.asks`：卖单量
-  - `orderbook.spread_bps`：价差（bps）
+  - `orderbook.bids`：买单档位列表
+  - `orderbook.asks`：卖单档位列表
+  - `orderbook.bids[].price`：买单价格
+  - `orderbook.bids[].amount`：买单数量
+  - `orderbook.asks[].price`：卖单价格
+  - `orderbook.asks[].amount`：卖单数量
+  - `orderbook.spread_bps`：价差（bps，可选）
   - `pool`：池子统计信息
   - `pool.liquidity`：流动性
   - `pool.volume_5m`：5 分钟成交量
