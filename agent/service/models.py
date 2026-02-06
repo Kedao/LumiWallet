@@ -29,6 +29,22 @@ class TxStats(BaseModel):
     contract_interactions: Optional[int] = None
 
 
+class AccountTransaction(BaseModel):
+    tx_hash: str
+    timestamp: int
+    from_address: str
+    to_address: Optional[str] = None
+    value: Optional[str] = None
+    token_address: Optional[str] = None
+    token_decimals: Optional[int] = None
+    tx_type: Optional[str] = Field(
+        default=None, description="transfer | approve | contract_call | swap | mint | stake"
+    )
+    contract_address: Optional[str] = None
+    method_sig: Optional[str] = None
+    success: Optional[bool] = None
+
+
 class GraphSignals(BaseModel):
     cluster_score: Optional[float] = None
     hops_to_tagged: Optional[int] = None
@@ -41,11 +57,13 @@ class PhishingRiskRequest(BaseModel):
     interaction_type: Optional[str] = Field(
         default=None, description="transfer | approve | contract_call"
     )
+    transactions: Optional[List[AccountTransaction]] = Field(
+        default=None, description="Most recent up to 100 transactions"
+    )
     lifecycle: Optional[LifecycleInfo] = None
     tx_stats: Optional[TxStats] = None
     graph: Optional[GraphSignals] = None
     tags: Optional[List[TagInfo]] = None
-    evidence: Optional[List[str]] = None
     extra_features: Optional[Dict[str, Any]] = None
 
 
@@ -57,15 +75,57 @@ class ContractCodeInfo(BaseModel):
     abi: Optional[str] = None
 
 
+class ContractPermissions(BaseModel):
+    owner: Optional[str] = None
+    admin: Optional[str] = None
+    can_upgrade: Optional[bool] = None
+    can_pause: Optional[bool] = None
+    can_blacklist: Optional[bool] = None
+    can_mint: Optional[bool] = None
+    can_burn: Optional[bool] = None
+
+
+class ContractProxyInfo(BaseModel):
+    is_proxy: Optional[bool] = None
+    implementation_address: Optional[str] = None
+    admin_address: Optional[str] = None
+
+
+class ContractCreatorInfo(BaseModel):
+    creator_address: Optional[str] = None
+    creation_tx_hash: Optional[str] = None
+    creation_timestamp: Optional[int] = None
+
+
+class TokenBehaviorFlags(BaseModel):
+    has_transfer_tax: Optional[bool] = None
+    tax_changeable: Optional[bool] = None
+    max_tx_limit: Optional[bool] = None
+    max_wallet_limit: Optional[bool] = None
+    trading_restrictions: Optional[bool] = None
+
+
+# NOTE: Runtime signal extraction requires log indexing and method decoding.
+# Uncomment when data pipeline is ready.
+# class ContractRuntimeSignals(BaseModel):
+#     suspicious_events: Optional[List[str]] = None
+#     recent_admin_actions: Optional[List[str]] = None
+#     interaction_counterparties: Optional[List[str]] = None
+
+
 class ContractRiskRequest(BaseModel):
     contract_address: str
     chain: str = "monad"
     interaction_type: Optional[str] = Field(
         default=None, description="approve | swap | mint | stake | contract_call"
     )
+    creator: Optional[ContractCreatorInfo] = None
+    proxy: Optional[ContractProxyInfo] = None
+    permissions: Optional[ContractPermissions] = None
+    token_flags: Optional[TokenBehaviorFlags] = None
+    # runtime: Optional[ContractRuntimeSignals] = None
     code: Optional[ContractCodeInfo] = None
     tags: Optional[List[TagInfo]] = None
-    evidence: Optional[List[str]] = None
     extra_features: Optional[Dict[str, Any]] = None
 
 
@@ -95,7 +155,6 @@ class SlippageRiskRequest(BaseModel):
     )
     orderbook: Optional[OrderBookStats] = None
     pool: Optional[PoolStats] = None
-    evidence: Optional[List[str]] = None
     extra_features: Optional[Dict[str, Any]] = None
 
 

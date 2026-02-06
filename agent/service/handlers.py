@@ -29,9 +29,8 @@ class RiskService:
             data = self._llm.invoke_json(SYSTEM_PROMPT + PHISHING_PROMPT, payload)
             return RiskResponse.model_validate(data)
         reasons = ["LLM disabled; unable to compute risk."]
-        evidence = req.evidence or []
         data_gaps = ["Model output unavailable"]
-        return self._fallback("Unable to assess risk with current configuration.", reasons, evidence, data_gaps)
+        return self._fallback("Unable to assess risk with current configuration.", reasons, [], data_gaps)
 
     def contract(self, req: ContractRiskRequest) -> RiskResponse:
         payload: Dict[str, Any] = {"task": "contract_risk", "input": req.model_dump()}
@@ -39,9 +38,8 @@ class RiskService:
             data = self._llm.invoke_json(SYSTEM_PROMPT + CONTRACT_PROMPT, payload)
             return RiskResponse.model_validate(data)
         reasons = ["LLM disabled; unable to compute risk."]
-        evidence = req.evidence or []
         data_gaps = ["Model output unavailable"]
-        return self._fallback("Unable to assess contract risk with current configuration.", reasons, evidence, data_gaps)
+        return self._fallback("Unable to assess contract risk with current configuration.", reasons, [], data_gaps)
 
     def slippage(self, req: SlippageRiskRequest) -> RiskResponse:
         payload: Dict[str, Any] = {"task": "slippage_risk", "input": req.model_dump()}
@@ -49,6 +47,5 @@ class RiskService:
             data = self._llm.invoke_json(SYSTEM_PROMPT + SLIPPAGE_PROMPT, payload)
             return RiskResponse.model_validate(data)
         reasons = ["LLM disabled; unable to compute risk."]
-        evidence = req.evidence or []
         data_gaps = ["Model output unavailable"]
-        return self._fallback("Unable to assess slippage risk with current configuration.", reasons, evidence, data_gaps)
+        return self._fallback("Unable to assess slippage risk with current configuration.", reasons, [], data_gaps)
