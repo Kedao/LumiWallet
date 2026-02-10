@@ -1,0 +1,27 @@
+:root {
+  color-scheme: light;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  --bg: #f4f1ed;
+  --panel: #ffffff;
+  --ink: #1b1b1b;
+  --muted: #6b6b6b;
+  --accent: #1f7a6b;
+  --warn: #f1b83a;
+  --danger: #e24c4c;
+  --border: #e3ded7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+#root {
+  min-width: 360px;
+  min-height: 600px;
+}
