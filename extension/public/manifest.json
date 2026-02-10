@@ -4,10 +4,12 @@
   "version": "0.1.0",
   "description": "Agent-powered Smart Wallet for Monad",
   "action": {
-    "default_title": "LumiWallet",
-    "default_popup": "index.html"
+    "default_title": "LumiWallet"
   },
-  "permissions": ["storage"],
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "permissions": ["storage", "sidePanel"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",

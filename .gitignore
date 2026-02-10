@@ -69,3 +69,6 @@ temp/
 
 # Markdown files
 *.md
+
+# Tool scripts
+scripts/
