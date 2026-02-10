@@ -66,3 +66,9 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Markdown files
+*.md
+
+# Tool scripts
+scripts/
