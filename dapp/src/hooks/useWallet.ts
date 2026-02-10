@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { BrowserProvider } from 'ethers'
 import type { LumiWalletProvider, ConnectionState } from '@shared/types'
+import { showDialog, showErrorDialog } from '@/lib/dialogBus'
 
 /**
  * useWallet Hook
@@ -15,13 +16,8 @@ export function useWallet() {
   })
   const [isLoading, setIsLoading] = useState(false)
 
-  /**
-   * Unified standard popup for all exception messages
-   */
-  const showException = useCallback((message: string) => {
-    if (typeof window !== 'undefined') {
-      window.alert(message)
-    }
+  const showException = useCallback((title: string, message: string) => {
+    showErrorDialog(title, message)
   }, [])
 
   /**
@@ -31,7 +27,17 @@ export function useWallet() {
     if (typeof window === 'undefined' || !window.ethereum) {
       return null
     }
-    return window.ethereum
+
+    // EIP-6963/multi-provider scenario: prefer MetaMask when available.
+    const provider = window.ethereum as LumiWalletProvider & { providers?: LumiWalletProvider[] }
+    if (Array.isArray(provider.providers) && provider.providers.length > 0) {
+      const metamaskProvider = provider.providers.find((item) => item.isMetaMask)
+      if (metamaskProvider) {
+        return metamaskProvider
+      }
+    }
+
+    return provider
   }, [])
 
   /**
@@ -62,7 +68,7 @@ export function useWallet() {
       }
     } catch (err) {
       console.error('检查连接失败:', err)
-      showException('检查钱包连接状态失败，请稍后重试')
+      showException('连接状态检查失败', '检查钱包连接状态失败，请稍后重试。')
     }
   }, [getProvider, showException])
 
@@ -73,7 +79,7 @@ export function useWallet() {
   const connect = useCallback(async () => {
     const provider = getProvider()
     if (!provider) {
-      showException('请安装 MetaMask 或 LumiWallet 插件')
+      showException('未检测到钱包插件', '请安装 MetaMask 或 LumiWallet 浏览器插件。')
       return
     }
 
@@ -88,6 +94,11 @@ export function useWallet() {
         method: 'eth_chainId',
       })) as string
 
+      if (accounts.length === 0) {
+        showException('等待钱包授权', '请在 LumiWallet 侧边栏完成连接授权。')
+        return
+      }
+
       setState({
         account: accounts[0],
         chainId,
@@ -97,12 +108,19 @@ export function useWallet() {
       if (err && typeof err === 'object' && 'code' in err) {
         const error = err as { code: number; message: string }
         if (error.code === 4001) {
-          showException('用户取消了钱包连接')
+          showException('连接已取消', '你已取消钱包连接请求。')
+        } else if (error.code === -32002) {
+          showDialog({
+            title: '请前往 MetaMask 完成授权',
+            message: '检测到已有待处理的连接请求。请点击浏览器工具栏中的 MetaMask 插件，在插件内确认连接。',
+            variant: 'warning',
+            actionText: '去处理',
+          })
         } else {
-          showException(error.message || '连接失败')
+          showException('钱包连接失败', error.message || '连接失败，请稍后重试。')
         }
       } else {
-        showException('连接失败')
+        showException('钱包连接失败', '连接失败，请稍后重试。')
       }
     } finally {
       setIsLoading(false)

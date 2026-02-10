@@ -1,4 +1,5 @@
 import { WalletConnect } from '@/components/WalletConnect'
+import { GlobalDialogHost } from '@/components/ui/GlobalDialogHost'
 import './App.css'
 
 const features = [
@@ -104,6 +105,8 @@ function App() {
           <p>Mon, Ethereum-compatible, Security-first</p>
         </div>
       </footer>
+
+      <GlobalDialogHost />
     </div>
   )
 }

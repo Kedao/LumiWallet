@@ -58,34 +58,36 @@ export function WalletConnect() {
 
   // Not connected state
   return (
-    <div
-      role="button"
-      tabIndex={isLoading ? -1 : 0}
-      aria-disabled={isLoading}
-      onClick={() => {
-        if (!isLoading) connect()
-      }}
-      onKeyDown={(event) => handleKeyboardActivate(event, isLoading, connect)}
-      className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-[var(--brand)] text-sm font-semibold leading-none text-white shadow-[0_10px_24px_rgba(11,108,255,0.28)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[var(--brand-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-      style={{
-        paddingLeft: '1.75rem',
-        paddingRight: '1.75rem',
-        paddingTop: '0.75rem',
-        paddingBottom: '0.75rem',
-        opacity: isLoading ? 0.5 : 1,
-        pointerEvents: isLoading ? 'none' : 'auto',
-      }}
-    >
-      {isLoading ? (
-        <>
-          <Loader2 className="h-4 w-4 animate-spin" />
-          连接中...
-        </>
-      ) : (
-        <>
-          <Wallet className="h-4 w-4" />
-          连接钱包
-        </>
+    <div className="relative">
+      <div
+        role="button"
+        tabIndex={isLoading ? -1 : 0}
+        aria-disabled={isLoading}
+        onClick={() => {
+          if (!isLoading) connect()
+        }}
+        onKeyDown={(event) => handleKeyboardActivate(event, isLoading, connect)}
+        className={`wallet-connect-trigger ${
+          isLoading ? 'wallet-connect-trigger-loading' : ''
+        }`}
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            等待钱包授权...
+          </>
+        ) : (
+          <>
+            <Wallet className="h-4 w-4" />
+            连接钱包
+          </>
+        )}
+      </div>
+
+      {isLoading && (
+        <p className="wallet-auth-hint">
+          需手动打开 MetaMask 插件并确认连接
+        </p>
       )}
     </div>
   )
