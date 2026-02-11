@@ -1,7 +1,9 @@
 import { Balance, TransactionRecord, WalletAccount } from '../types/models'
 import {
+  Contract,
   computeAddress,
   formatEther,
+  formatUnits,
   getAddress,
   getBytes,
   hexlify,
@@ -80,9 +82,16 @@ const PBKDF2_ITERATIONS = 600_000
 const PBKDF2_SALT_BYTES = 16
 const AES_GCM_IV_BYTES = 12
 const PRIVATE_KEY_BYTES = 32
+const EGOLD_CONTRACT_ADDRESS = getAddress('0xee7977f3854377f6b8bdf6d0b715277834936b24')
+const ERC20_ABI = [
+  'function balanceOf(address owner) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)'
+]
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
 const provider = new JsonRpcProvider(DEFAULT_EXTENSION_NETWORK.rpcUrls[0])
+const eGoldContract = new Contract(EGOLD_CONTRACT_ADDRESS, ERC20_ABI, provider)
 let sessionSecretHex: string | null = null
 
 const canUseChromeStorage = () =>
@@ -624,11 +633,36 @@ export const removeImportedAccount = async (address: string): Promise<AccountSta
 export const fetchBalance = async (): Promise<Balance> => {
   const account = await getSelectedStoredAccount()
   if (!account) {
-    return { symbol: 'MON', amount: '0.00' }
+    return {
+      assets: [
+        { symbol: 'MON', amount: '0.00', isNative: true },
+        { symbol: 'eGold', amount: '0.00', contractAddress: EGOLD_CONTRACT_ADDRESS }
+      ]
+    }
   }
 
-  const balance = await provider.getBalance(getAddress(account.address))
-  return { symbol: 'MON', amount: formatEther(balance) }
+  const ownerAddress = getAddress(account.address)
+  const [monBalance, eGoldRawBalance, eGoldDecimals, eGoldSymbol] = await Promise.all([
+    provider.getBalance(ownerAddress),
+    eGoldContract.balanceOf(ownerAddress) as Promise<bigint>,
+    eGoldContract.decimals() as Promise<number>,
+    eGoldContract.symbol() as Promise<string>
+  ])
+
+  return {
+    assets: [
+      {
+        symbol: 'MON',
+        amount: formatEther(monBalance),
+        isNative: true
+      },
+      {
+        symbol: eGoldSymbol,
+        amount: formatUnits(eGoldRawBalance, eGoldDecimals),
+        contractAddress: EGOLD_CONTRACT_ADDRESS
+      }
+    ]
+  }
 }
 
 export const fetchHistory = async (): Promise<TransactionRecord[]> => {

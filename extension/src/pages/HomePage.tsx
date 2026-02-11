@@ -1,15 +1,51 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import BalanceCard from '../components/BalanceCard'
 import QuickActions from '../components/QuickActions'
 import TxHistoryList from '../components/TxHistoryList'
 import RiskPanel from '../components/RiskPanel'
 import { useWallet } from '../state/walletStore'
+import { fetchBalance } from '../services/walletClient'
 
 const HomePage = () => {
-  const { account, importAccount } = useWallet()
+  const { account, importAccount, setBalance } = useWallet()
   const [privateKey, setPrivateKey] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!account) {
+      setBalance(null)
+      return
+    }
+
+    let isCancelled = false
+    const loadBalance = async () => {
+      try {
+        const nextBalance = await fetchBalance()
+        if (!isCancelled) {
+          setBalance(nextBalance)
+        }
+      } catch {
+        if (!isCancelled) {
+          setBalance({
+            assets: [
+              { symbol: 'MON', amount: '0.00', isNative: true },
+              {
+                symbol: 'eGold',
+                amount: '0.00',
+                contractAddress: '0xee7977f3854377f6b8bdf6d0b715277834936b24'
+              }
+            ]
+          })
+        }
+      }
+    }
+
+    void loadBalance()
+    return () => {
+      isCancelled = true
+    }
+  }, [account, setBalance])
 
   const handleImport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

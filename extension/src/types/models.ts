@@ -7,9 +7,15 @@ export interface WalletAccount {
   label?: string
 }
 
-export interface Balance {
-  symbol: 'MON'
+export interface TokenBalanceItem {
+  symbol: string
   amount: string
+  isNative?: boolean
+  contractAddress?: string
+}
+
+export interface Balance {
+  assets: TokenBalanceItem[]
 }
 
 export type TransactionType = 'transfer' | 'contract' | 'dex'
