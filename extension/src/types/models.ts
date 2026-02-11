@@ -1,4 +1,6 @@
-export type ChainId = 'monad-testnet'
+import type { ExtensionChainId } from '../config/networks'
+
+export type ChainId = ExtensionChainId
 
 export interface WalletAccount {
   address: string

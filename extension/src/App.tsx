@@ -6,18 +6,65 @@ import SendPage from './pages/SendPage'
 import SwapPage from './pages/SwapPage'
 import ActivityPage from './pages/ActivityPage'
 import TxResultPage from './pages/TxResultPage'
+import { useWallet } from './state/walletStore'
 
 const App = () => {
+  const { isAuthReady, isUnlocked } = useWallet()
+
+  if (!isAuthReady) {
+    return (
+      <Layout>
+        <section
+          style={{
+            background: 'var(--panel)',
+            borderRadius: 16,
+            padding: 16,
+            border: '1px solid var(--border)',
+            color: 'var(--muted)',
+            fontSize: 14
+          }}
+        >
+          Loading wallet...
+        </section>
+      </Layout>
+    )
+  }
+
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/home" element={<HomePage />} />
-        <Route path="/send" element={<SendPage />} />
-        <Route path="/swap" element={<SwapPage />} />
-        <Route path="/activity" element={<ActivityPage />} />
-        <Route path="/tx/result" element={<TxResultPage />} />
+        <Route
+          path="/"
+          element={<Navigate to={isUnlocked ? '/home' : '/login'} replace />}
+        />
+        <Route
+          path="/login"
+          element={isUnlocked ? <Navigate to="/home" replace /> : <LoginPage />}
+        />
+        <Route
+          path="/home"
+          element={isUnlocked ? <HomePage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/send"
+          element={isUnlocked ? <SendPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/swap"
+          element={isUnlocked ? <SwapPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/activity"
+          element={isUnlocked ? <ActivityPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/tx/result"
+          element={isUnlocked ? <TxResultPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="*"
+          element={<Navigate to={isUnlocked ? '/home' : '/login'} replace />}
+        />
       </Routes>
     </Layout>
   )
