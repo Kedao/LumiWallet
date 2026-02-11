@@ -1,4 +1,18 @@
 import { Balance, TransactionRecord, WalletAccount } from '../types/models'
+import {
+  computeAddress,
+  formatEther,
+  getAddress,
+  getBytes,
+  hexlify,
+  isHexString,
+  JsonRpcProvider,
+  parseEther,
+  randomBytes as ethersRandomBytes,
+  toQuantity,
+  Wallet
+} from 'ethers'
+import { DEFAULT_EXTENSION_NETWORK } from '../config/networks'
 
 interface StoredPbkdf2Config {
   algorithm: 'PBKDF2'
@@ -24,18 +38,52 @@ interface WalletVaultPayload {
   privateKeyHex: string
 }
 
+interface StoredImportedAccount {
+  address: string
+  label?: string
+  cipher: {
+    algorithm: 'AES-GCM'
+    ivBase64: string
+  }
+  privateKeyCiphertextBase64: string
+  importedAt: string
+}
+
+interface StoredAccountsV1 {
+  version: 1
+  selectedAddress: string | null
+  accounts: StoredImportedAccount[]
+}
+
+interface AccountState {
+  accounts: WalletAccount[]
+  selectedAddress: string | null
+}
+
+interface RpcTransaction {
+  hash: string
+  from: string
+  to: string | null
+  value: string
+  input: string
+  blockNumber: string | null
+}
+
+interface RpcBlockWithTransactions {
+  timestamp: string
+  transactions: RpcTransaction[]
+}
+
 const AUTH_STORAGE_KEY = 'lumi.wallet.auth.v1'
+const ACCOUNTS_STORAGE_KEY = 'lumi.wallet.accounts.v1'
 const PBKDF2_ITERATIONS = 600_000
 const PBKDF2_SALT_BYTES = 16
 const AES_GCM_IV_BYTES = 12
 const PRIVATE_KEY_BYTES = 32
-const LOGIN_PLACEHOLDER_ACCOUNT: WalletAccount = {
-  // Placeholder only; real EVM address derivation will be implemented later.
-  address: '0x0000000000000000000000000000000000000000',
-  label: 'Primary Account'
-}
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
+const provider = new JsonRpcProvider(DEFAULT_EXTENSION_NETWORK.rpcUrls[0])
+let sessionSecretHex: string | null = null
 
 const canUseChromeStorage = () =>
   typeof chrome !== 'undefined' && Boolean(chrome?.storage?.local)
@@ -77,16 +125,67 @@ const isWalletVaultV2 = (value: unknown): value is StoredWalletVaultV2 => {
   )
 }
 
-const getStoredAuth = async (): Promise<unknown | null> => {
+const isStoredImportedAccount = (value: unknown): value is StoredImportedAccount => {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  const cipher = value.cipher
+  return (
+    typeof value.address === 'string' &&
+    (typeof value.label === 'string' || typeof value.label === 'undefined') &&
+    isRecord(cipher) &&
+    cipher.algorithm === 'AES-GCM' &&
+    typeof cipher.ivBase64 === 'string' &&
+    typeof value.privateKeyCiphertextBase64 === 'string' &&
+    typeof value.importedAt === 'string'
+  )
+}
+
+const isStoredAccountsV1 = (value: unknown): value is StoredAccountsV1 => {
+  if (!isRecord(value)) {
+    return false
+  }
+  if (value.version !== 1 || !Array.isArray(value.accounts)) {
+    return false
+  }
+  if (value.selectedAddress !== null && typeof value.selectedAddress !== 'string') {
+    return false
+  }
+  return value.accounts.every((item) => isStoredImportedAccount(item))
+}
+
+const isRpcTransaction = (value: unknown): value is RpcTransaction => {
+  if (!isRecord(value)) {
+    return false
+  }
+  return (
+    typeof value.hash === 'string' &&
+    typeof value.from === 'string' &&
+    (typeof value.to === 'string' || value.to === null) &&
+    typeof value.value === 'string' &&
+    typeof value.input === 'string' &&
+    (typeof value.blockNumber === 'string' || value.blockNumber === null)
+  )
+}
+
+const isRpcBlockWithTransactions = (value: unknown): value is RpcBlockWithTransactions => {
+  if (!isRecord(value) || !Array.isArray(value.transactions) || typeof value.timestamp !== 'string') {
+    return false
+  }
+  return value.transactions.every((item) => isRpcTransaction(item))
+}
+
+const getStoredItem = async (key: string): Promise<unknown | null> => {
   if (canUseChromeStorage()) {
     return new Promise((resolve) => {
-      chrome.storage.local.get([AUTH_STORAGE_KEY], (items: Record<string, unknown>) => {
-        resolve(items[AUTH_STORAGE_KEY] ?? null)
+      chrome.storage.local.get([key], (items: Record<string, unknown>) => {
+        resolve(items[key] ?? null)
       })
     })
   }
 
-  const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+  const raw = localStorage.getItem(key)
   if (!raw) {
     return null
   }
@@ -98,30 +197,19 @@ const getStoredAuth = async (): Promise<unknown | null> => {
   }
 }
 
-const setStoredAuth = async (payload: StoredWalletVaultV2): Promise<void> => {
+const setStoredItem = async (key: string, payload: unknown): Promise<void> => {
   if (canUseChromeStorage()) {
     return new Promise((resolve) => {
-      chrome.storage.local.set({ [AUTH_STORAGE_KEY]: payload }, () => resolve())
+      chrome.storage.local.set({ [key]: payload }, () => resolve())
     })
   }
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload))
+  localStorage.setItem(key, JSON.stringify(payload))
 }
 
-const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
-
-const randomBytes = (size: number): Uint8Array => {
-  const bytes = new Uint8Array(size)
-  crypto.getRandomValues(bytes)
-  return bytes
-}
+const randomBytes = (size: number): Uint8Array => ethersRandomBytes(size)
 
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
   bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
-
-const isHex = (value: string): boolean => /^[0-9a-f]+$/i.test(value)
 
 const toBase64 = (bytes: Uint8Array): string => {
   let binary = ''
@@ -138,6 +226,41 @@ const fromBase64 = (value: string): Uint8Array => {
     bytes[i] = binary.charCodeAt(i)
   }
   return bytes
+}
+
+const normalizeAddress = (address: string): string => address.trim().toLowerCase()
+
+const normalizePrivateKey = (privateKey: string): string =>
+  privateKey.trim().toLowerCase().replace(/^0x/, '')
+
+const validateAddress = (address: string): string => {
+  try {
+    return normalizeAddress(getAddress(address.trim()))
+  } catch {
+    throw new Error('Invalid address format.')
+  }
+}
+
+const validatePrivateKey = (privateKey: string): string => {
+  const normalized = normalizePrivateKey(privateKey)
+  const prefixed = `0x${normalized}`
+  if (!isHexString(prefixed, PRIVATE_KEY_BYTES)) {
+    throw new Error('Invalid private key format.')
+  }
+  try {
+    computeAddress(prefixed)
+  } catch {
+    throw new Error('Invalid private key format.')
+  }
+  return normalized
+}
+
+const deriveAddressFromPrivateKey = (privateKeyHex: string): string => {
+  try {
+    return normalizeAddress(getAddress(computeAddress(`0x${privateKeyHex}`)))
+  } catch {
+    throw new Error('Invalid private key format.')
+  }
 }
 
 const deriveEncryptionKey = async (
@@ -224,23 +347,152 @@ const decryptVaultPayload = async (
     throw new Error('Wallet vault payload is invalid.')
   }
 
-  const privateKeyHex = parsed.privateKeyHex.toLowerCase()
-  if (privateKeyHex.length !== PRIVATE_KEY_BYTES * 2 || !isHex(privateKeyHex)) {
+  const privateKeyHex = normalizePrivateKey(parsed.privateKeyHex)
+  const prefixed = `0x${privateKeyHex}`
+  if (!isHexString(prefixed, PRIVATE_KEY_BYTES)) {
+    throw new Error('Wallet vault key is invalid.')
+  }
+  try {
+    computeAddress(prefixed)
+  } catch {
     throw new Error('Wallet vault key is invalid.')
   }
 
   return { privateKeyHex }
 }
 
-const createPrivateKeyHex = (): string => toHex(randomBytes(PRIVATE_KEY_BYTES))
+const createPrivateKeyHex = (): string => hexlify(randomBytes(PRIVATE_KEY_BYTES)).slice(2)
 
 const getVaultV2 = async (): Promise<StoredWalletVaultV2 | null> => {
-  const raw = await getStoredAuth()
+  const raw = await getStoredItem(AUTH_STORAGE_KEY)
   if (!isWalletVaultV2(raw)) {
     return null
   }
   return raw
 }
+
+const getStoredAccounts = async (): Promise<StoredAccountsV1> => {
+  const raw = await getStoredItem(ACCOUNTS_STORAGE_KEY)
+  if (!isStoredAccountsV1(raw)) {
+    return {
+      version: 1,
+      selectedAddress: null,
+      accounts: []
+    }
+  }
+  return raw
+}
+
+const setStoredAccounts = async (payload: StoredAccountsV1): Promise<void> =>
+  setStoredItem(ACCOUNTS_STORAGE_KEY, payload)
+
+const deriveAccountEncryptionKey = async (): Promise<CryptoKey> => {
+  if (!sessionSecretHex) {
+    throw new Error('Wallet is locked.')
+  }
+  const secretBytes = getBytes(`0x${sessionSecretHex}`)
+  return crypto.subtle.importKey(
+    'raw',
+    toArrayBuffer(new Uint8Array(secretBytes)),
+    {
+      name: 'AES-GCM',
+      length: 256
+    },
+    false,
+    ['encrypt', 'decrypt']
+  )
+}
+
+const encryptImportedPrivateKey = async (privateKeyHex: string): Promise<{
+  ivBase64: string
+  privateKeyCiphertextBase64: string
+}> => {
+  const iv = randomBytes(AES_GCM_IV_BYTES)
+  const key = await deriveAccountEncryptionKey()
+  const plaintext = textEncoder.encode(privateKeyHex)
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: toArrayBuffer(iv) },
+    key,
+    toArrayBuffer(plaintext)
+  )
+  return {
+    ivBase64: toBase64(iv),
+    privateKeyCiphertextBase64: toBase64(new Uint8Array(ciphertext))
+  }
+}
+
+const normalizeAccountState = (stored: StoredAccountsV1): AccountState => {
+  const accounts: WalletAccount[] = stored.accounts.map((item, index) => ({
+    address: item.address,
+    label: item.label ?? `Account ${index + 1}`
+  }))
+  const hasSelected = accounts.some((item) => item.address === stored.selectedAddress)
+  return {
+    accounts,
+    selectedAddress: hasSelected ? stored.selectedAddress : accounts[0]?.address ?? null
+  }
+}
+
+const getSelectedStoredAccount = async (): Promise<StoredImportedAccount | null> => {
+  const stored = await getStoredAccounts()
+  if (!stored.selectedAddress) {
+    return null
+  }
+  return stored.accounts.find((item) => item.address === stored.selectedAddress) ?? null
+}
+
+const decryptImportedPrivateKey = async (account: StoredImportedAccount): Promise<string> => {
+  if (!sessionSecretHex) {
+    throw new Error('Wallet is locked.')
+  }
+
+  try {
+    const key = await deriveAccountEncryptionKey()
+    const iv = fromBase64(account.cipher.ivBase64)
+    const ciphertext = fromBase64(account.privateKeyCiphertextBase64)
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: toArrayBuffer(iv) },
+      key,
+      toArrayBuffer(ciphertext)
+    )
+    const decoded = textDecoder.decode(new Uint8Array(plaintext))
+    return validatePrivateKey(decoded)
+  } catch {
+    throw new Error('Unable to decrypt account private key.')
+  }
+}
+
+const getSelectedAccountWallet = async (): Promise<{ account: StoredImportedAccount; wallet: Wallet }> => {
+  const account = await getSelectedStoredAccount()
+  if (!account) {
+    throw new Error('No account selected.')
+  }
+
+  const privateKeyHex = await decryptImportedPrivateKey(account)
+  const wallet = new Wallet(`0x${privateKeyHex}`, provider)
+  if (normalizeAddress(wallet.address) !== normalizeAddress(account.address)) {
+    throw new Error('Account private key does not match selected address.')
+  }
+
+  return { account, wallet }
+}
+
+const parseMonAmount = (amount: string): bigint => {
+  try {
+    const parsed = parseEther(amount)
+    if (parsed <= 0n) {
+      throw new Error('Amount must be greater than zero.')
+    }
+    return parsed
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Amount must be greater than zero.') {
+      throw error
+    }
+    throw new Error('Invalid amount format.')
+  }
+}
+
+const parseRpcQuantity = (value: string): number => Number.parseInt(value, 16)
 
 const assertPasswordStrength = (password: string): void => {
   if (password.length < 8) {
@@ -253,7 +505,7 @@ export const isWalletInitialized = async (): Promise<boolean> => {
   return Boolean(auth)
 }
 
-export const initializeWalletWithPassword = async (password: string): Promise<WalletAccount> => {
+export const initializeWalletWithPassword = async (password: string): Promise<void> => {
   assertPasswordStrength(password)
 
   const initialized = await isWalletInitialized()
@@ -263,56 +515,209 @@ export const initializeWalletWithPassword = async (password: string): Promise<Wa
 
   const privateKeyHex = createPrivateKeyHex()
   const encryptedVault = await encryptVaultPayload({ privateKeyHex }, password)
-  await setStoredAuth({
+  await setStoredItem(AUTH_STORAGE_KEY, {
     version: 2,
     createdAt: new Date().toISOString(),
     ...encryptedVault
   })
-
-  return LOGIN_PLACEHOLDER_ACCOUNT
+  await setStoredAccounts({ version: 1, selectedAddress: null, accounts: [] })
+  sessionSecretHex = privateKeyHex
 }
 
-export const loginWithPassword = async (password: string): Promise<WalletAccount> => {
+export const loginWithPassword = async (password: string): Promise<void> => {
   const auth = await getVaultV2()
   if (!auth) {
     throw new Error('Wallet is not initialized yet.')
   }
 
   try {
-    await decryptVaultPayload(auth, password)
+    const vault = await decryptVaultPayload(auth, password)
+    sessionSecretHex = vault.privateKeyHex
   } catch {
     throw new Error('Incorrect password.')
   }
+}
 
-  return LOGIN_PLACEHOLDER_ACCOUNT
+export const clearWalletSession = (): void => {
+  sessionSecretHex = null
+}
+
+export const getImportedAccountState = async (): Promise<AccountState> => {
+  const stored = await getStoredAccounts()
+  const normalized = normalizeAccountState(stored)
+  if (normalized.selectedAddress !== stored.selectedAddress) {
+    await setStoredAccounts({
+      ...stored,
+      selectedAddress: normalized.selectedAddress
+    })
+  }
+  return normalized
+}
+
+export const importAccountWithPrivateKey = async (privateKey: string): Promise<AccountState> => {
+  const normalizedPrivateKey = validatePrivateKey(privateKey)
+  const normalizedAddress = deriveAddressFromPrivateKey(normalizedPrivateKey)
+
+  const stored = await getStoredAccounts()
+  if (stored.accounts.some((item) => item.address === normalizedAddress)) {
+    throw new Error('This account is already imported.')
+  }
+
+  const encryptedPrivateKey = await encryptImportedPrivateKey(normalizedPrivateKey)
+  const nextStored: StoredAccountsV1 = {
+    version: 1,
+    selectedAddress: normalizedAddress,
+    accounts: [
+      ...stored.accounts,
+      {
+        address: normalizedAddress,
+        label: `Account ${stored.accounts.length + 1}`,
+        cipher: {
+          algorithm: 'AES-GCM',
+          ivBase64: encryptedPrivateKey.ivBase64
+        },
+        privateKeyCiphertextBase64: encryptedPrivateKey.privateKeyCiphertextBase64,
+        importedAt: new Date().toISOString()
+      }
+    ]
+  }
+  await setStoredAccounts(nextStored)
+  return normalizeAccountState(nextStored)
+}
+
+export const selectImportedAccount = async (address: string): Promise<AccountState> => {
+  const normalizedAddress = validateAddress(address)
+  const stored = await getStoredAccounts()
+  if (!stored.accounts.some((item) => item.address === normalizedAddress)) {
+    throw new Error('Account does not exist.')
+  }
+
+  const nextStored: StoredAccountsV1 = {
+    ...stored,
+    selectedAddress: normalizedAddress
+  }
+  await setStoredAccounts(nextStored)
+  return normalizeAccountState(nextStored)
+}
+
+export const removeImportedAccount = async (address: string): Promise<AccountState> => {
+  const normalizedAddress = validateAddress(address)
+  const stored = await getStoredAccounts()
+  if (!stored.accounts.some((item) => item.address === normalizedAddress)) {
+    throw new Error('Account does not exist.')
+  }
+
+  const remaining = stored.accounts.filter((item) => item.address !== normalizedAddress)
+  const selectedAddress = remaining.some((item) => item.address === stored.selectedAddress)
+    ? stored.selectedAddress
+    : remaining[0]?.address ?? null
+
+  const nextStored: StoredAccountsV1 = {
+    ...stored,
+    selectedAddress,
+    accounts: remaining
+  }
+  await setStoredAccounts(nextStored)
+  return normalizeAccountState(nextStored)
 }
 
 export const fetchBalance = async (): Promise<Balance> => {
-  // TODO: query Monad RPC.
-  return { symbol: 'MON', amount: '0.00' }
+  const account = await getSelectedStoredAccount()
+  if (!account) {
+    return { symbol: 'MON', amount: '0.00' }
+  }
+
+  const balance = await provider.getBalance(getAddress(account.address))
+  return { symbol: 'MON', amount: formatEther(balance) }
 }
 
 export const fetchHistory = async (): Promise<TransactionRecord[]> => {
-  // TODO: query indexer or RPC for activity.
-  return []
+  const account = await getSelectedStoredAccount()
+  if (!account) {
+    return []
+  }
+
+  try {
+    const accountAddress = normalizeAddress(getAddress(account.address))
+    const latestBlockNumber = await provider.getBlockNumber()
+    const maxBlocksToScan = 300
+    const records: TransactionRecord[] = []
+
+    for (
+      let blockNumber = latestBlockNumber;
+      blockNumber >= 0 && blockNumber > latestBlockNumber - maxBlocksToScan && records.length < 20;
+      blockNumber -= 1
+    ) {
+      const rawBlock = await provider.send('eth_getBlockByNumber', [toQuantity(blockNumber), true]) as unknown
+      if (!rawBlock || !isRpcBlockWithTransactions(rawBlock)) {
+        continue
+      }
+
+      const blockTimestamp = parseRpcQuantity(rawBlock.timestamp) * 1000
+      for (const tx of rawBlock.transactions) {
+        const from = normalizeAddress(tx.from)
+        const to = tx.to ? normalizeAddress(tx.to) : undefined
+        if (from !== accountAddress && to !== accountAddress) {
+          continue
+        }
+
+        const hasData = tx.input !== '0x'
+        const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null)
+        const status: TransactionRecord['status'] = receipt
+          ? receipt.status === 1
+            ? 'success'
+            : 'failed'
+          : 'pending'
+
+        records.push({
+          id: tx.hash,
+          type: hasData ? 'contract' : 'transfer',
+          timestamp: blockTimestamp,
+          amount: formatEther(BigInt(tx.value)),
+          status,
+          to,
+          contract: hasData && to ? to : undefined,
+          hash: tx.hash
+        })
+
+        if (records.length >= 20) {
+          break
+        }
+      }
+    }
+
+    return records
+  } catch {
+    return []
+  }
 }
 
 export const sendTransfer = async (to: string, amount: string): Promise<string> => {
-  // TODO: build and submit transfer transaction.
-  void to
-  void amount
-  return '0x'
+  const normalizedTo = validateAddress(to)
+  const value = parseMonAmount(amount)
+  const { wallet } = await getSelectedAccountWallet()
+  const tx = await wallet.sendTransaction({
+    to: getAddress(normalizedTo),
+    value
+  })
+  return tx.hash
 }
 
 export const sendContractCall = async (contract: string, data: string): Promise<string> => {
-  // TODO: build and submit contract call transaction.
-  void contract
-  void data
-  return '0x'
+  const normalizedContract = validateAddress(contract)
+  if (!isHexString(data)) {
+    throw new Error('Invalid contract call data.')
+  }
+
+  const { wallet } = await getSelectedAccountWallet()
+  const tx = await wallet.sendTransaction({
+    to: getAddress(normalizedContract),
+    data
+  })
+  return tx.hash
 }
 
 export const sendSwap = async (routeId: string): Promise<string> => {
-  // TODO: call 1inch aggregator or DEX router.
   void routeId
-  return '0x'
+  throw new Error('Swap route is not configured yet.')
 }

@@ -1,12 +1,18 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react'
 import { Balance, TransactionRecord, WalletAccount } from '../types/models'
 import {
+  clearWalletSession,
+  getImportedAccountState,
+  importAccountWithPrivateKey,
   initializeWalletWithPassword,
   isWalletInitialized,
-  loginWithPassword
+  loginWithPassword,
+  removeImportedAccount,
+  selectImportedAccount
 } from '../services/walletClient'
 
 interface WalletState {
+  accounts: WalletAccount[]
   account: WalletAccount | null
   balance: Balance | null
   history: TransactionRecord[]
@@ -18,12 +24,16 @@ interface WalletState {
   setHistory: (history: TransactionRecord[]) => void
   initializePassword: (password: string) => Promise<void>
   unlockWithPassword: (password: string) => Promise<void>
+  importAccount: (privateKey: string) => Promise<void>
+  switchAccount: (address: string) => Promise<void>
+  removeAccount: (address: string) => Promise<void>
   lockWallet: () => void
 }
 
 const WalletContext = createContext<WalletState | undefined>(undefined)
 
 export const WalletProvider = ({ children }: PropsWithChildren) => {
+  const [accounts, setAccounts] = useState<WalletAccount[]>([])
   const [account, setAccount] = useState<WalletAccount | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [history, setHistory] = useState<TransactionRecord[]>([])
@@ -44,20 +54,46 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     })
   }, [])
 
+  const syncAccountState = async () => {
+    const state = await getImportedAccountState()
+    setAccounts(state.accounts)
+    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+  }
+
   const initializePassword = async (password: string) => {
-    const nextAccount = await initializeWalletWithPassword(password)
-    setAccount(nextAccount)
+    await initializeWalletWithPassword(password)
+    await syncAccountState()
     setIsInitialized(true)
     setIsUnlocked(true)
   }
 
   const unlockWithPassword = async (password: string) => {
-    const nextAccount = await loginWithPassword(password)
-    setAccount(nextAccount)
+    await loginWithPassword(password)
+    await syncAccountState()
     setIsUnlocked(true)
   }
 
+  const importAccount = async (privateKey: string) => {
+    const state = await importAccountWithPrivateKey(privateKey)
+    setAccounts(state.accounts)
+    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+  }
+
+  const switchAccount = async (address: string) => {
+    const state = await selectImportedAccount(address)
+    setAccounts(state.accounts)
+    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+  }
+
+  const removeAccount = async (address: string) => {
+    const state = await removeImportedAccount(address)
+    setAccounts(state.accounts)
+    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+  }
+
   const lockWallet = () => {
+    clearWalletSession()
+    setAccounts([])
     setAccount(null)
     setBalance(null)
     setHistory([])
@@ -66,6 +102,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
 
   const value = useMemo(
     () => ({
+      accounts,
       account,
       balance,
       history,
@@ -77,9 +114,12 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       setHistory,
       initializePassword,
       unlockWithPassword,
+      importAccount,
+      switchAccount,
+      removeAccount,
       lockWallet
     }),
-    [account, balance, history, isAuthReady, isInitialized, isUnlocked]
+    [accounts, account, balance, history, isAuthReady, isInitialized, isUnlocked]
   )
 
   return (

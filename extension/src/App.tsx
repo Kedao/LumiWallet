@@ -9,7 +9,8 @@ import TxResultPage from './pages/TxResultPage'
 import { useWallet } from './state/walletStore'
 
 const App = () => {
-  const { isAuthReady, isUnlocked } = useWallet()
+  const { isAuthReady, isUnlocked, account } = useWallet()
+  const hasActiveAccount = Boolean(account)
 
   if (!isAuthReady) {
     return (
@@ -47,19 +48,19 @@ const App = () => {
         />
         <Route
           path="/send"
-          element={isUnlocked ? <SendPage /> : <Navigate to="/login" replace />}
+          element={isUnlocked && hasActiveAccount ? <SendPage /> : <Navigate to={isUnlocked ? '/home' : '/login'} replace />}
         />
         <Route
           path="/swap"
-          element={isUnlocked ? <SwapPage /> : <Navigate to="/login" replace />}
+          element={isUnlocked && hasActiveAccount ? <SwapPage /> : <Navigate to={isUnlocked ? '/home' : '/login'} replace />}
         />
         <Route
           path="/activity"
-          element={isUnlocked ? <ActivityPage /> : <Navigate to="/login" replace />}
+          element={isUnlocked && hasActiveAccount ? <ActivityPage /> : <Navigate to={isUnlocked ? '/home' : '/login'} replace />}
         />
         <Route
           path="/tx/result"
-          element={isUnlocked ? <TxResultPage /> : <Navigate to="/login" replace />}
+          element={isUnlocked && hasActiveAccount ? <TxResultPage /> : <Navigate to={isUnlocked ? '/home' : '/login'} replace />}
         />
         <Route
           path="*"
