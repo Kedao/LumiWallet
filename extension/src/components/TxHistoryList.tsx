@@ -1,5 +1,15 @@
+import HashText from './HashText'
+
+interface ActivityPlaceholderItem {
+  id: string
+  title: string
+  detail: string
+  time: string
+  hash?: string
+}
+
 const TxHistoryList = () => {
-  const placeholder = [
+  const placeholder: ActivityPlaceholderItem[] = [
     { id: '1', title: 'Send', detail: '0.00 MON', time: 'Just now' },
     { id: '2', title: 'Swap', detail: '0.00 MON', time: '2 min ago' },
     { id: '3', title: 'Contract', detail: '0.00 MON', time: '1 hour ago' }
@@ -11,7 +21,8 @@ const TxHistoryList = () => {
         background: 'var(--panel)',
         borderRadius: 16,
         padding: 16,
-        border: '1px solid var(--border)'
+        border: '1px solid var(--border)',
+        minWidth: 0
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Activity</div>
@@ -25,12 +36,18 @@ const TxHistoryList = () => {
               borderRadius: 12,
               padding: 10,
               background: '#fdfcf9',
-              border: '1px solid var(--border)'
+              border: '1px solid var(--border)',
+              minWidth: 0
             }}
           >
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 12 }}>{item.title}</div>
               <div style={{ fontSize: 10, color: 'var(--muted)' }}>{item.time}</div>
+              {item.hash ? (
+                <div style={{ marginTop: 2, minWidth: 0 }}>
+                  <HashText value={item.hash} mode="compact" startChars={8} endChars={6} fontSize={10} color="var(--muted)" />
+                </div>
+              ) : null}
             </div>
             <div style={{ fontSize: 12 }}>{item.detail}</div>
           </div>

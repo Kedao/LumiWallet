@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { parseUnits } from 'ethers'
+import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
 import { fetchBalance, sendTokenTransfer } from '../services/walletClient'
 import { useWallet } from '../state/walletStore'
@@ -280,7 +281,9 @@ const SendPage = () => {
             }}
           >
             <div>Sent successfully. Tx:</div>
-            <div style={{ marginTop: 2, fontFamily: 'monospace', fontSize: 11 }}>{txHash}</div>
+            <div style={{ marginTop: 2 }}>
+              <HashText value={txHash} mode="wrap" fontSize={11} color="#1f5e41" />
+            </div>
           </div>
         ) : null}
 

@@ -1,5 +1,6 @@
 import { FormEvent, PropsWithChildren, useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import HashText from './HashText'
 import { useWallet } from '../state/walletStore'
 
 const Layout = ({ children }: PropsWithChildren) => {
@@ -11,8 +12,6 @@ const Layout = ({ children }: PropsWithChildren) => {
   const [isImporting, setIsImporting] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
   const [isRemoveConfirmOpen, setIsRemoveConfirmOpen] = useState(false)
-
-  const shortenAddress = (address: string) => `${address.slice(0, 6)}...${address.slice(-4)}`
 
   const handleSwitchAccount = async (address: string) => {
     setMenuError('')
@@ -116,7 +115,18 @@ const Layout = ({ children }: PropsWithChildren) => {
                     {account?.label ?? 'Account'}
                   </span>
                   <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    {account ? shortenAddress(account.address) : ''}
+                    {account ? (
+                      <HashText
+                        value={account.address}
+                        mode="compact"
+                        startChars={6}
+                        endChars={4}
+                        fontSize={11}
+                        color="var(--muted)"
+                      />
+                    ) : (
+                      ''
+                    )}
                   </span>
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>{isMenuOpen ? '▲' : '▼'}</span>
@@ -166,7 +176,14 @@ const Layout = ({ children }: PropsWithChildren) => {
                               {item.label ?? 'Account'}
                             </span>
                             <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>
-                              {shortenAddress(item.address)}
+                              <HashText
+                                value={item.address}
+                                mode="compact"
+                                startChars={6}
+                                endChars={4}
+                                fontSize={11}
+                                color="var(--muted)"
+                              />
                             </span>
                           </span>
                           {isActive ? (
