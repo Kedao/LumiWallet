@@ -29,10 +29,11 @@ const HomePage = () => {
         if (!isCancelled) {
           setBalance({
             assets: [
-              { symbol: 'MON', amount: '0.00', isNative: true },
+              { symbol: 'MON', amount: '0.00', decimals: 18, isNative: true },
               {
                 symbol: 'eGold',
                 amount: '0.00',
+                decimals: 18,
                 contractAddress: '0xee7977f3854377f6b8bdf6d0b715277834936b24'
               }
             ]

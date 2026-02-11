@@ -1,6 +1,7 @@
 import { Balance, TransactionRecord, WalletAccount } from '../types/models'
 import {
   Contract,
+  ContractTransactionResponse,
   computeAddress,
   formatEther,
   formatUnits,
@@ -10,6 +11,7 @@ import {
   isHexString,
   JsonRpcProvider,
   parseEther,
+  parseUnits,
   randomBytes as ethersRandomBytes,
   toQuantity,
   Wallet
@@ -86,7 +88,8 @@ const EGOLD_CONTRACT_ADDRESS = getAddress('0xee7977f3854377f6b8bdf6d0b7152778349
 const ERC20_ABI = [
   'function balanceOf(address owner) view returns (uint256)',
   'function decimals() view returns (uint8)',
-  'function symbol() view returns (string)'
+  'function symbol() view returns (string)',
+  'function transfer(address to, uint256 amount) returns (bool)'
 ]
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
@@ -501,6 +504,21 @@ const parseMonAmount = (amount: string): bigint => {
   }
 }
 
+const parseErc20Amount = (amount: string, decimals: number): bigint => {
+  try {
+    const parsed = parseUnits(amount, decimals)
+    if (parsed <= 0n) {
+      throw new Error('Amount must be greater than zero.')
+    }
+    return parsed
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Amount must be greater than zero.') {
+      throw error
+    }
+    throw new Error('Invalid amount format.')
+  }
+}
+
 const parseRpcQuantity = (value: string): number => Number.parseInt(value, 16)
 
 const assertPasswordStrength = (password: string): void => {
@@ -635,8 +653,8 @@ export const fetchBalance = async (): Promise<Balance> => {
   if (!account) {
     return {
       assets: [
-        { symbol: 'MON', amount: '0.00', isNative: true },
-        { symbol: 'eGold', amount: '0.00', contractAddress: EGOLD_CONTRACT_ADDRESS }
+        { symbol: 'MON', amount: '0.00', decimals: 18, isNative: true },
+        { symbol: 'eGold', amount: '0.00', decimals: 18, contractAddress: EGOLD_CONTRACT_ADDRESS }
       ]
     }
   }
@@ -654,11 +672,13 @@ export const fetchBalance = async (): Promise<Balance> => {
       {
         symbol: 'MON',
         amount: formatEther(monBalance),
+        decimals: DEFAULT_EXTENSION_NETWORK.nativeCurrency.decimals,
         isNative: true
       },
       {
         symbol: eGoldSymbol,
         amount: formatUnits(eGoldRawBalance, eGoldDecimals),
+        decimals: eGoldDecimals,
         contractAddress: EGOLD_CONTRACT_ADDRESS
       }
     ]
@@ -735,6 +755,34 @@ export const sendTransfer = async (to: string, amount: string): Promise<string> 
     value
   })
   return tx.hash
+}
+
+export const sendErc20Transfer = async (to: string, amount: string): Promise<string> => {
+  const normalizedTo = validateAddress(to)
+  const { wallet } = await getSelectedAccountWallet()
+  const decimals = await eGoldContract.decimals() as number
+  const value = parseErc20Amount(amount, decimals)
+  const contract = new Contract(EGOLD_CONTRACT_ADDRESS, ERC20_ABI, wallet)
+  const tx = await contract.transfer(
+    getAddress(normalizedTo),
+    value
+  ) as ContractTransactionResponse
+  return tx.hash
+}
+
+export const sendTokenTransfer = async (
+  tokenSymbol: string,
+  to: string,
+  amount: string
+): Promise<string> => {
+  const normalizedSymbol = tokenSymbol.trim().toUpperCase()
+  if (normalizedSymbol === 'MON') {
+    return sendTransfer(to, amount)
+  }
+  if (normalizedSymbol === 'EGOLD') {
+    return sendErc20Transfer(to, amount)
+  }
+  throw new Error('Unsupported token.')
 }
 
 export const sendContractCall = async (contract: string, data: string): Promise<string> => {

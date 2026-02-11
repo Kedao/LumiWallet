@@ -73,7 +73,7 @@ const Layout = ({ children }: PropsWithChildren) => {
   }
 
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, boxSizing: 'border-box' }}>
       <header
         style={{
           display: 'flex',
@@ -386,7 +386,7 @@ const Layout = ({ children }: PropsWithChildren) => {
         </nav>
       ) : null}
 
-      <main style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>{children}</main>
+      <main style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>{children}</main>
     </div>
   )
 }

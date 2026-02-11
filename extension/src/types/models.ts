@@ -10,6 +10,7 @@ export interface WalletAccount {
 export interface TokenBalanceItem {
   symbol: string
   amount: string
+  decimals?: number
   isNative?: boolean
   contractAddress?: string
 }
