@@ -78,6 +78,15 @@ interface RpcBlockWithTransactions {
   transactions: RpcTransaction[]
 }
 
+export type SwapTargetToken = 'MON' | 'eGold'
+
+export interface SwapQuote {
+  inputToken: SwapTargetToken
+  outputToken: SwapTargetToken
+  inputAmount: string
+  expectedOutputAmount: string
+}
+
 const AUTH_STORAGE_KEY = 'lumi.wallet.auth.v1'
 const ACCOUNTS_STORAGE_KEY = 'lumi.wallet.accounts.v1'
 const PBKDF2_ITERATIONS = 600_000
@@ -85,16 +94,27 @@ const PBKDF2_SALT_BYTES = 16
 const AES_GCM_IV_BYTES = 12
 const PRIVATE_KEY_BYTES = 32
 const EGOLD_CONTRACT_ADDRESS = getAddress('0xee7977f3854377f6b8bdf6d0b715277834936b24')
+const AMM_CONTRACT_ADDRESS = getAddress('0x64a359881660bc623017a660f2322489c4cdda8b')
 const ERC20_ABI = [
   'function balanceOf(address owner) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 value) returns (bool)',
   'function decimals() view returns (uint8)',
   'function symbol() view returns (string)',
   'function transfer(address to, uint256 amount) returns (bool)'
+]
+const AMM_ABI = [
+  'function getReserves() view returns (uint256 reserveMON, uint256 reserveEGold)',
+  'function getAmountOutMONToToken(uint256 amountIn) view returns (uint256 amountOut)',
+  'function getAmountOutTokenToMON(uint256 amountIn) view returns (uint256 amountOut)',
+  'function swapExactMONForTokens(address to, uint256 deadline) payable',
+  'function swapExactTokensForMON(uint256 amountIn, address to, uint256 deadline)'
 ]
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
 const provider = new JsonRpcProvider(DEFAULT_EXTENSION_NETWORK.rpcUrls[0])
 const eGoldContract = new Contract(EGOLD_CONTRACT_ADDRESS, ERC20_ABI, provider)
+const ammContract = new Contract(AMM_CONTRACT_ADDRESS, AMM_ABI, provider)
 let sessionSecretHex: string | null = null
 
 const canUseChromeStorage = () =>
@@ -521,6 +541,58 @@ const parseErc20Amount = (amount: string, decimals: number): bigint => {
 
 const parseRpcQuantity = (value: string): number => Number.parseInt(value, 16)
 
+const normalizeSwapTargetToken = (token: string): SwapTargetToken => {
+  const normalized = token.trim().toUpperCase()
+  if (normalized === 'MON') {
+    return 'MON'
+  }
+  if (normalized === 'EGOLD') {
+    return 'eGold'
+  }
+  throw new Error('Unsupported swap token.')
+}
+
+const getSwapOutputForExactInput = async (
+  inputToken: SwapTargetToken,
+  inputAmount: string
+): Promise<{
+  inputToken: SwapTargetToken
+  outputToken: SwapTargetToken
+  inputAmountRaw: bigint
+  expectedOutputRaw: bigint
+  inputDecimals: number
+  outputDecimals: number
+}> => {
+  const eGoldDecimals = await eGoldContract.decimals() as number
+  const isInputMon = inputToken === 'MON'
+  const inputDecimals = isInputMon ? DEFAULT_EXTENSION_NETWORK.nativeCurrency.decimals : eGoldDecimals
+  const outputDecimals = isInputMon ? eGoldDecimals : DEFAULT_EXTENSION_NETWORK.nativeCurrency.decimals
+  const inputAmountRaw = isInputMon
+    ? parseMonAmount(inputAmount)
+    : parseErc20Amount(inputAmount, eGoldDecimals)
+
+  let expectedOutputRaw: bigint
+  try {
+    expectedOutputRaw = isInputMon
+      ? await ammContract.getAmountOutMONToToken(inputAmountRaw) as bigint
+      : await ammContract.getAmountOutTokenToMON(inputAmountRaw) as bigint
+  } catch {
+    throw new Error('Unable to estimate swap output.')
+  }
+  if (expectedOutputRaw <= 0n) {
+    throw new Error('Swap output is too small.')
+  }
+
+  return {
+    inputToken,
+    outputToken: isInputMon ? 'eGold' : 'MON',
+    inputAmountRaw,
+    expectedOutputRaw,
+    inputDecimals,
+    outputDecimals
+  }
+}
+
 const assertPasswordStrength = (password: string): void => {
   if (password.length < 8) {
     throw new Error('Password must be at least 8 characters.')
@@ -799,7 +871,67 @@ export const sendContractCall = async (contract: string, data: string): Promise<
   return tx.hash
 }
 
-export const sendSwap = async (routeId: string): Promise<string> => {
-  void routeId
-  throw new Error('Swap route is not configured yet.')
+export const fetchSwapQuoteByInputAmount = async (
+  inputToken: SwapTargetToken,
+  inputAmount: string
+): Promise<SwapQuote> => {
+  const normalizedInput = normalizeSwapTargetToken(inputToken)
+  const output = await getSwapOutputForExactInput(normalizedInput, inputAmount)
+  return {
+    inputToken: output.inputToken,
+    outputToken: output.outputToken,
+    inputAmount: formatUnits(output.inputAmountRaw, output.inputDecimals),
+    expectedOutputAmount: formatUnits(output.expectedOutputRaw, output.outputDecimals)
+  }
+}
+
+export const swapByInputAmount = async (
+  inputToken: SwapTargetToken,
+  inputAmount: string
+): Promise<string> => {
+  const normalizedInput = normalizeSwapTargetToken(inputToken)
+  const output = await getSwapOutputForExactInput(normalizedInput, inputAmount)
+  const { wallet } = await getSelectedAccountWallet()
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 10 * 60)
+  const ammWithSigner = new Contract(AMM_CONTRACT_ADDRESS, AMM_ABI, wallet)
+
+  if (output.inputToken === 'MON') {
+    const monBalance = await provider.getBalance(wallet.address)
+    if (monBalance < output.inputAmountRaw) {
+      throw new Error('Insufficient MON balance.')
+    }
+    const tx = await ammWithSigner.swapExactMONForTokens(
+      wallet.address,
+      deadline,
+      { value: output.inputAmountRaw }
+    ) as ContractTransactionResponse
+    return tx.hash
+  }
+
+  const eGoldWithSigner = new Contract(EGOLD_CONTRACT_ADDRESS, ERC20_ABI, wallet)
+  const eGoldBalance = await eGoldWithSigner.balanceOf(wallet.address) as bigint
+  if (eGoldBalance < output.inputAmountRaw) {
+    throw new Error('Insufficient eGold balance.')
+  }
+
+  const allowance = await eGoldWithSigner.allowance(wallet.address, AMM_CONTRACT_ADDRESS) as bigint
+  if (allowance < output.inputAmountRaw) {
+    const approveTx = await eGoldWithSigner.approve(
+      AMM_CONTRACT_ADDRESS,
+      output.inputAmountRaw
+    ) as ContractTransactionResponse
+    await approveTx.wait()
+  }
+
+  const tx = await ammWithSigner.swapExactTokensForMON(
+    output.inputAmountRaw,
+    wallet.address,
+    deadline
+  ) as ContractTransactionResponse
+  return tx.hash
+}
+
+export const sendSwap = async (inputToken: string, inputAmount: string): Promise<string> => {
+  const normalizedInput = normalizeSwapTargetToken(inputToken)
+  return swapByInputAmount(normalizedInput, inputAmount)
 }
