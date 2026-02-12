@@ -80,6 +80,12 @@ interface StoredActivityV1 {
   items: StoredActivityItemV1[]
 }
 
+interface StoredWalletSessionStateV1 {
+  version: 1
+  unlocked: boolean
+  updatedAt: string
+}
+
 export type SwapTargetToken = 'MON' | 'eGold'
 
 export interface SwapQuote {
@@ -99,6 +105,8 @@ export interface LocalActivityInput {
 const AUTH_STORAGE_KEY = 'lumi.wallet.auth.v1'
 const ACCOUNTS_STORAGE_KEY = 'lumi.wallet.accounts.v1'
 const ACTIVITY_STORAGE_KEY = 'lumi.wallet.activity.v1'
+const WALLET_SESSION_STATE_KEY = 'lumi.wallet.session.v1'
+const DAPP_PERMISSIONS_STORAGE_KEY = 'lumi.wallet.dapp.permissions.v1'
 const PBKDF2_ITERATIONS = 600_000
 const PBKDF2_SALT_BYTES = 16
 const AES_GCM_IV_BYTES = 12
@@ -130,6 +138,9 @@ let sessionSecretHex: string | null = null
 
 const canUseChromeStorage = () =>
   typeof chrome !== 'undefined' && Boolean(chrome?.storage?.local)
+
+const canUseChromeSessionStorage = () =>
+  typeof chrome !== 'undefined' && Boolean(chrome?.storage?.session)
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -230,6 +241,18 @@ const isStoredActivityV1 = (value: unknown): value is StoredActivityV1 => {
     value.version === 1 &&
     Array.isArray(value.items) &&
     value.items.every((item) => isStoredActivityItemV1(item))
+  )
+}
+
+const isStoredWalletSessionStateV1 = (value: unknown): value is StoredWalletSessionStateV1 => {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return (
+    value.version === 1 &&
+    typeof value.unlocked === 'boolean' &&
+    typeof value.updatedAt === 'string'
   )
 }
 
@@ -418,6 +441,60 @@ const setStoredItem = async (key: string, payload: unknown): Promise<void> => {
     })
   }
   localStorage.setItem(key, JSON.stringify(payload))
+}
+
+const getSessionItem = async (key: string): Promise<unknown | null> => {
+  if (canUseChromeSessionStorage()) {
+    return new Promise((resolve) => {
+      chrome.storage.session.get([key], (items: Record<string, unknown>) => {
+        resolve(items[key] ?? null)
+      })
+    })
+  }
+
+  const raw = sessionStorage.getItem(key)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return JSON.parse(raw) as unknown
+  } catch {
+    return null
+  }
+}
+
+const setSessionItem = async (key: string, payload: unknown): Promise<void> => {
+  if (canUseChromeSessionStorage()) {
+    return new Promise((resolve) => {
+      chrome.storage.session.set({ [key]: payload }, () => resolve())
+    })
+  }
+
+  sessionStorage.setItem(key, JSON.stringify(payload))
+}
+
+const setWalletSessionUnlocked = async (unlocked: boolean): Promise<void> => {
+  await setSessionItem(WALLET_SESSION_STATE_KEY, {
+    version: 1,
+    unlocked,
+    updatedAt: new Date().toISOString()
+  } satisfies StoredWalletSessionStateV1)
+}
+
+const clearDappOriginPermissions = async (): Promise<void> => {
+  await setStoredItem(DAPP_PERMISSIONS_STORAGE_KEY, {
+    version: 1,
+    allowedOrigins: []
+  })
+}
+
+export const isWalletSessionUnlocked = async (): Promise<boolean> => {
+  const raw = await getSessionItem(WALLET_SESSION_STATE_KEY)
+  if (!isStoredWalletSessionStateV1(raw)) {
+    return false
+  }
+  return raw.unlocked
 }
 
 const randomBytes = (size: number): Uint8Array => ethersRandomBytes(size)
@@ -801,6 +878,8 @@ export const initializeWalletWithPassword = async (password: string): Promise<vo
   })
   await setStoredAccounts({ version: 1, selectedAddress: null, accounts: [] })
   sessionSecretHex = privateKeyHex
+  await setWalletSessionUnlocked(true)
+  await clearDappOriginPermissions()
 }
 
 export const loginWithPassword = async (password: string): Promise<void> => {
@@ -812,13 +891,17 @@ export const loginWithPassword = async (password: string): Promise<void> => {
   try {
     const vault = await decryptVaultPayload(auth, password)
     sessionSecretHex = vault.privateKeyHex
+    await setWalletSessionUnlocked(true)
+    await clearDappOriginPermissions()
   } catch {
     throw new Error('Incorrect password.')
   }
 }
 
-export const clearWalletSession = (): void => {
+export const clearWalletSession = async (): Promise<void> => {
   sessionSecretHex = null
+  await setWalletSessionUnlocked(false)
+  await clearDappOriginPermissions()
 }
 
 export const getImportedAccountState = async (): Promise<AccountState> => {

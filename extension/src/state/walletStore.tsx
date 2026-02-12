@@ -55,6 +55,20 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     })
   }, [])
 
+  useEffect(() => {
+    void clearWalletSession()
+
+    const handleBeforeUnload = () => {
+      void clearWalletSession()
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      void clearWalletSession()
+    }
+  }, [])
+
   const applyAccountState = async (selectedAddress: string | null, nextAccounts: WalletAccount[]) => {
     setAccounts(nextAccounts)
     setAccount(nextAccounts.find((item) => item.address === selectedAddress) ?? null)
@@ -96,7 +110,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   }
 
   const lockWallet = () => {
-    clearWalletSession()
+    void clearWalletSession()
     setAccounts([])
     setAccount(null)
     setBalance(null)
