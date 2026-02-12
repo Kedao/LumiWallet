@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
-import { fetchBalance, sendTokenTransfer } from '../services/walletClient'
+import { fetchBalance, recordLocalActivity, sendTokenTransfer } from '../services/walletClient'
 import { useWallet } from '../state/walletStore'
 
 const tokenOptions = ['MON', 'eGold'] as const
@@ -35,11 +35,12 @@ const formatDisplayAmount = (amount: string): string => {
 }
 
 const SendPage = () => {
-  const { account, balance, setBalance } = useWallet()
+  const { account, balance, setBalance, setHistory } = useWallet()
   const [token, setToken] = useState<TokenOption>('MON')
   const [toAddress, setToAddress] = useState('')
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
+  const [historyWarning, setHistoryWarning] = useState('')
   const [txHash, setTxHash] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -110,6 +111,7 @@ const SendPage = () => {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
+    setHistoryWarning('')
     setTxHash('')
 
     if (parsedAmount === null) {
@@ -126,8 +128,26 @@ const SendPage = () => {
       const hash = await sendTokenTransfer(token, toAddress.trim(), amount.trim())
       setTxHash(hash)
       setAmount('')
-      const nextBalance = await fetchBalance()
-      setBalance(nextBalance)
+
+      try {
+        const nextHistory = await recordLocalActivity({
+          type: 'transfer',
+          amount: `${amount.trim()} ${token}`,
+          hash,
+          to: toAddress.trim()
+        })
+        setHistory(nextHistory)
+      } catch (activityError) {
+        console.warn('Failed to record local send activity', activityError)
+        setHistoryWarning('Transaction sent, but failed to save local activity.')
+      }
+
+      try {
+        const nextBalance = await fetchBalance()
+        setBalance(nextBalance)
+      } catch (balanceError) {
+        console.warn('Failed to refresh balance after send', balanceError)
+      }
     } catch (submitError) {
       if (submitError instanceof Error) {
         setError(submitError.message)
@@ -265,6 +285,22 @@ const SendPage = () => {
             }}
           >
             {error}
+          </div>
+        ) : null}
+        {historyWarning ? (
+          <div
+            style={{
+              fontSize: 12,
+              color: '#7a4b00',
+              background: '#fff5df',
+              border: '1px solid #f1b83a',
+              padding: '8px 10px',
+              borderRadius: 10,
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word'
+            }}
+          >
+            {historyWarning}
           </div>
         ) : null}
         {txHash ? (

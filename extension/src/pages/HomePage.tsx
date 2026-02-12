@@ -1,13 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react'
 import BalanceCard from '../components/BalanceCard'
-import QuickActions from '../components/QuickActions'
 import TxHistoryList from '../components/TxHistoryList'
 import RiskPanel from '../components/RiskPanel'
 import { useWallet } from '../state/walletStore'
-import { fetchBalance } from '../services/walletClient'
+import { fetchBalance, fetchHistory } from '../services/walletClient'
 
 const HomePage = () => {
-  const { account, importAccount, setBalance } = useWallet()
+  const { account, importAccount, setBalance, history, setHistory } = useWallet()
   const [privateKey, setPrivateKey] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -47,6 +46,35 @@ const HomePage = () => {
       isCancelled = true
     }
   }, [account, setBalance])
+
+  useEffect(() => {
+    if (!account) {
+      setHistory([])
+      return
+    }
+
+    let isCancelled = false
+    const loadHistory = async () => {
+      try {
+        const nextHistory = await fetchHistory()
+        if (!isCancelled) {
+          setHistory(nextHistory)
+        }
+      } catch (historyError) {
+        console.warn('Failed to refresh activity history', historyError)
+      }
+    }
+
+    void loadHistory()
+    const timer = window.setInterval(() => {
+      void loadHistory()
+    }, 15_000)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(timer)
+    }
+  }, [account, setHistory])
 
   const handleImport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -157,9 +185,8 @@ const HomePage = () => {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <BalanceCard />
-      <QuickActions />
+      <TxHistoryList records={history} />
       <RiskPanel />
-      <TxHistoryList />
     </div>
   )
 }

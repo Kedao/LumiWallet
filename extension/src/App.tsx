@@ -4,7 +4,6 @@ import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
 import SendPage from './pages/SendPage'
 import SwapPage from './pages/SwapPage'
-import ActivityPage from './pages/ActivityPage'
 import TxResultPage from './pages/TxResultPage'
 import { useWallet } from './state/walletStore'
 
@@ -53,10 +52,6 @@ const App = () => {
         <Route
           path="/swap"
           element={isUnlocked && hasActiveAccount ? <SwapPage /> : <Navigate to={isUnlocked ? '/home' : '/login'} replace />}
-        />
-        <Route
-          path="/activity"
-          element={isUnlocked && hasActiveAccount ? <ActivityPage /> : <Navigate to={isUnlocked ? '/home' : '/login'} replace />}
         />
         <Route
           path="/tx/result"

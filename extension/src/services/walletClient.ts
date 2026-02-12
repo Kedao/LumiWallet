@@ -13,7 +13,6 @@ import {
   parseEther,
   parseUnits,
   randomBytes as ethersRandomBytes,
-  toQuantity,
   Wallet
 } from 'ethers'
 import { DEFAULT_EXTENSION_NETWORK } from '../config/networks'
@@ -64,18 +63,21 @@ interface AccountState {
   selectedAddress: string | null
 }
 
-interface RpcTransaction {
-  hash: string
-  from: string
-  to: string | null
-  value: string
-  input: string
-  blockNumber: string | null
+interface StoredActivityItemV1 {
+  accountAddress: string
+  id: string
+  type: TransactionRecord['type']
+  timestamp: number
+  amount: string
+  status: TransactionRecord['status']
+  to?: string
+  contract?: string
+  hash?: string
 }
 
-interface RpcBlockWithTransactions {
-  timestamp: string
-  transactions: RpcTransaction[]
+interface StoredActivityV1 {
+  version: 1
+  items: StoredActivityItemV1[]
 }
 
 export type SwapTargetToken = 'MON' | 'eGold'
@@ -87,12 +89,21 @@ export interface SwapQuote {
   expectedOutputAmount: string
 }
 
+export interface LocalActivityInput {
+  type: 'transfer' | 'dex'
+  amount: string
+  hash: string
+  to?: string
+}
+
 const AUTH_STORAGE_KEY = 'lumi.wallet.auth.v1'
 const ACCOUNTS_STORAGE_KEY = 'lumi.wallet.accounts.v1'
+const ACTIVITY_STORAGE_KEY = 'lumi.wallet.activity.v1'
 const PBKDF2_ITERATIONS = 600_000
 const PBKDF2_SALT_BYTES = 16
 const AES_GCM_IV_BYTES = 12
 const PRIVATE_KEY_BYTES = 32
+const MAX_ACTIVITY_RECORDS_PER_ACCOUNT = 50
 const EGOLD_CONTRACT_ADDRESS = getAddress('0xee7977f3854377f6b8bdf6d0b715277834936b24')
 const AMM_CONTRACT_ADDRESS = getAddress('0x64a359881660bc623017a660f2322489c4cdda8b')
 const ERC20_ABI = [
@@ -187,25 +198,196 @@ const isStoredAccountsV1 = (value: unknown): value is StoredAccountsV1 => {
   return value.accounts.every((item) => isStoredImportedAccount(item))
 }
 
-const isRpcTransaction = (value: unknown): value is RpcTransaction => {
+const isTransactionType = (value: unknown): value is TransactionRecord['type'] =>
+  value === 'transfer' || value === 'contract' || value === 'dex'
+
+const isTransactionStatus = (value: unknown): value is TransactionRecord['status'] =>
+  value === 'pending' || value === 'success' || value === 'failed'
+
+const isStoredActivityItemV1 = (value: unknown): value is StoredActivityItemV1 => {
   if (!isRecord(value)) {
     return false
   }
   return (
-    typeof value.hash === 'string' &&
-    typeof value.from === 'string' &&
-    (typeof value.to === 'string' || value.to === null) &&
-    typeof value.value === 'string' &&
-    typeof value.input === 'string' &&
-    (typeof value.blockNumber === 'string' || value.blockNumber === null)
+    typeof value.accountAddress === 'string' &&
+    typeof value.id === 'string' &&
+    isTransactionType(value.type) &&
+    typeof value.timestamp === 'number' &&
+    Number.isFinite(value.timestamp) &&
+    typeof value.amount === 'string' &&
+    isTransactionStatus(value.status) &&
+    (typeof value.to === 'string' || typeof value.to === 'undefined') &&
+    (typeof value.contract === 'string' || typeof value.contract === 'undefined') &&
+    (typeof value.hash === 'string' || typeof value.hash === 'undefined')
   )
 }
 
-const isRpcBlockWithTransactions = (value: unknown): value is RpcBlockWithTransactions => {
-  if (!isRecord(value) || !Array.isArray(value.transactions) || typeof value.timestamp !== 'string') {
+const isStoredActivityV1 = (value: unknown): value is StoredActivityV1 => {
+  if (!isRecord(value)) {
     return false
   }
-  return value.transactions.every((item) => isRpcTransaction(item))
+  return (
+    value.version === 1 &&
+    Array.isArray(value.items) &&
+    value.items.every((item) => isStoredActivityItemV1(item))
+  )
+}
+
+const isTxHash = (value: string): boolean =>
+  isHexString(value, 32)
+
+const toTransactionRecord = (item: StoredActivityItemV1): TransactionRecord => ({
+  id: item.id,
+  type: item.type,
+  timestamp: item.timestamp,
+  amount: item.amount,
+  status: item.status,
+  to: item.to,
+  contract: item.contract,
+  hash: item.hash
+})
+
+const toStoredActivityItem = (
+  accountAddress: string,
+  input: LocalActivityInput,
+  status: TransactionRecord['status']
+): StoredActivityItemV1 => {
+  const normalizedAmount = input.amount.trim()
+  if (!normalizedAmount) {
+    throw new Error('Activity amount is required.')
+  }
+
+  const txHash = input.hash.trim()
+  if (!isTxHash(txHash)) {
+    throw new Error('Invalid transaction hash.')
+  }
+
+  const timestamp = Date.now()
+  const normalizedCounterparty = input.to
+    ? validateAddress(input.to)
+    : input.type === 'dex'
+      ? normalizeAddress(AMM_CONTRACT_ADDRESS)
+      : undefined
+  return {
+    accountAddress,
+    id: txHash,
+    type: input.type,
+    timestamp,
+    amount: normalizedAmount,
+    status,
+    to: normalizedCounterparty,
+    contract: input.type === 'dex' ? normalizeAddress(AMM_CONTRACT_ADDRESS) : undefined,
+    hash: txHash
+  }
+}
+
+const resolveActivityStatus = async (txHash: string): Promise<TransactionRecord['status']> => {
+  try {
+    const receipt = await provider.getTransactionReceipt(txHash)
+    if (!receipt) {
+      return 'pending'
+    }
+    return receipt.status === 1 ? 'success' : 'failed'
+  } catch {
+    return 'pending'
+  }
+}
+
+const sanitizeActivityItems = (
+  items: StoredActivityItemV1[],
+  accountAddress: string
+): StoredActivityItemV1[] => {
+  const currentAccountItems = items
+    .filter((item) => item.accountAddress === accountAddress)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, MAX_ACTIVITY_RECORDS_PER_ACCOUNT)
+  const otherAccountItems = items.filter((item) => item.accountAddress !== accountAddress)
+  return [...currentAccountItems, ...otherAccountItems]
+}
+
+const mergeNewActivityRecord = (
+  stored: StoredActivityV1,
+  record: StoredActivityItemV1
+): StoredActivityV1 => {
+  const deduped = [
+    record,
+    ...stored.items.filter((item) => !(item.accountAddress === record.accountAddress && item.id === record.id))
+  ]
+  return {
+    version: 1,
+    items: sanitizeActivityItems(deduped, record.accountAddress)
+  }
+}
+
+const getStoredActivity = async (): Promise<StoredActivityV1> => {
+  const raw = await getStoredItem(ACTIVITY_STORAGE_KEY)
+  if (!isStoredActivityV1(raw)) {
+    return {
+      version: 1,
+      items: []
+    }
+  }
+  return raw
+}
+
+const setStoredActivity = async (payload: StoredActivityV1): Promise<void> =>
+  setStoredItem(ACTIVITY_STORAGE_KEY, payload)
+
+const getActivityByAccount = (
+  stored: StoredActivityV1,
+  accountAddress: string
+): TransactionRecord[] =>
+  stored.items
+    .filter((item) => item.accountAddress === accountAddress)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .map((item) => toTransactionRecord(item))
+
+const reconcilePendingActivityStatuses = async (
+  stored: StoredActivityV1,
+  accountAddress: string
+): Promise<{ nextStored: StoredActivityV1; hasChanged: boolean }> => {
+  let hasChanged = false
+  const nextItems = await Promise.all(
+    stored.items.map(async (item) => {
+      if (item.accountAddress !== accountAddress || item.status !== 'pending' || !item.hash) {
+        return item
+      }
+
+      const nextStatus = await resolveActivityStatus(item.hash)
+      if (nextStatus === item.status) {
+        return item
+      }
+
+      hasChanged = true
+      return {
+        ...item,
+        status: nextStatus
+      }
+    })
+  )
+
+  return {
+    nextStored: hasChanged
+      ? {
+        ...stored,
+        items: nextItems
+      }
+      : stored,
+    hasChanged
+  }
+}
+
+const getBlockExplorerBaseUrl = (): string =>
+  DEFAULT_EXTENSION_NETWORK.blockExplorerUrls?.[0]?.replace(/\/+$/, '') ?? ''
+
+export const getExplorerTxUrl = (txHash: string): string => {
+  const base = getBlockExplorerBaseUrl()
+  const hash = txHash.trim()
+  if (!base || !hash) {
+    return ''
+  }
+
+  return `${base}/tx/${hash}`
 }
 
 const getStoredItem = async (key: string): Promise<unknown | null> => {
@@ -539,8 +721,6 @@ const parseErc20Amount = (amount: string, decimals: number): bigint => {
   }
 }
 
-const parseRpcQuantity = (value: string): number => Number.parseInt(value, 16)
-
 const normalizeSwapTargetToken = (token: string): SwapTargetToken => {
   const normalized = token.trim().toUpperCase()
   if (normalized === 'MON') {
@@ -757,6 +937,23 @@ export const fetchBalance = async (): Promise<Balance> => {
   }
 }
 
+export const recordLocalActivity = async (
+  input: LocalActivityInput
+): Promise<TransactionRecord[]> => {
+  const account = await getSelectedStoredAccount()
+  if (!account) {
+    throw new Error('No account selected.')
+  }
+
+  const accountAddress = normalizeAddress(getAddress(account.address))
+  const status = await resolveActivityStatus(input.hash.trim())
+  const nextRecord = toStoredActivityItem(accountAddress, input, status)
+  const stored = await getStoredActivity()
+  const nextStored = mergeNewActivityRecord(stored, nextRecord)
+  await setStoredActivity(nextStored)
+  return getActivityByAccount(nextStored, accountAddress)
+}
+
 export const fetchHistory = async (): Promise<TransactionRecord[]> => {
   const account = await getSelectedStoredAccount()
   if (!account) {
@@ -765,54 +962,12 @@ export const fetchHistory = async (): Promise<TransactionRecord[]> => {
 
   try {
     const accountAddress = normalizeAddress(getAddress(account.address))
-    const latestBlockNumber = await provider.getBlockNumber()
-    const maxBlocksToScan = 300
-    const records: TransactionRecord[] = []
-
-    for (
-      let blockNumber = latestBlockNumber;
-      blockNumber >= 0 && blockNumber > latestBlockNumber - maxBlocksToScan && records.length < 20;
-      blockNumber -= 1
-    ) {
-      const rawBlock = await provider.send('eth_getBlockByNumber', [toQuantity(blockNumber), true]) as unknown
-      if (!rawBlock || !isRpcBlockWithTransactions(rawBlock)) {
-        continue
-      }
-
-      const blockTimestamp = parseRpcQuantity(rawBlock.timestamp) * 1000
-      for (const tx of rawBlock.transactions) {
-        const from = normalizeAddress(tx.from)
-        const to = tx.to ? normalizeAddress(tx.to) : undefined
-        if (from !== accountAddress && to !== accountAddress) {
-          continue
-        }
-
-        const hasData = tx.input !== '0x'
-        const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null)
-        const status: TransactionRecord['status'] = receipt
-          ? receipt.status === 1
-            ? 'success'
-            : 'failed'
-          : 'pending'
-
-        records.push({
-          id: tx.hash,
-          type: hasData ? 'contract' : 'transfer',
-          timestamp: blockTimestamp,
-          amount: formatEther(BigInt(tx.value)),
-          status,
-          to,
-          contract: hasData && to ? to : undefined,
-          hash: tx.hash
-        })
-
-        if (records.length >= 20) {
-          break
-        }
-      }
+    const stored = await getStoredActivity()
+    const { nextStored, hasChanged } = await reconcilePendingActivityStatuses(stored, accountAddress)
+    if (hasChanged) {
+      await setStoredActivity(nextStored)
     }
-
-    return records
+    return getActivityByAccount(nextStored, accountAddress)
   } catch {
     return []
   }

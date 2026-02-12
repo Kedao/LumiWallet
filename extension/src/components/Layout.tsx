@@ -372,15 +372,14 @@ const Layout = ({ children }: PropsWithChildren) => {
         <nav
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(3, 1fr)',
             gap: 8
           }}
         >
           {[
             { to: '/home', label: 'Home' },
             { to: '/send', label: 'Send' },
-            { to: '/swap', label: 'Swap' },
-            { to: '/activity', label: 'Activity' }
+            { to: '/swap', label: 'Swap' }
           ].map((item) => (
             <NavLink
               key={item.to}

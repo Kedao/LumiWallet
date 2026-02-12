@@ -2,6 +2,7 @@ import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useSt
 import { Balance, TransactionRecord, WalletAccount } from '../types/models'
 import {
   clearWalletSession,
+  fetchHistory,
   getImportedAccountState,
   importAccountWithPrivateKey,
   initializeWalletWithPassword,
@@ -54,10 +55,16 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     })
   }, [])
 
+  const applyAccountState = async (selectedAddress: string | null, nextAccounts: WalletAccount[]) => {
+    setAccounts(nextAccounts)
+    setAccount(nextAccounts.find((item) => item.address === selectedAddress) ?? null)
+    const nextHistory = await fetchHistory()
+    setHistory(nextHistory)
+  }
+
   const syncAccountState = async () => {
     const state = await getImportedAccountState()
-    setAccounts(state.accounts)
-    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+    await applyAccountState(state.selectedAddress, state.accounts)
   }
 
   const initializePassword = async (password: string) => {
@@ -75,20 +82,17 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
 
   const importAccount = async (privateKey: string) => {
     const state = await importAccountWithPrivateKey(privateKey)
-    setAccounts(state.accounts)
-    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+    await applyAccountState(state.selectedAddress, state.accounts)
   }
 
   const switchAccount = async (address: string) => {
     const state = await selectImportedAccount(address)
-    setAccounts(state.accounts)
-    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+    await applyAccountState(state.selectedAddress, state.accounts)
   }
 
   const removeAccount = async (address: string) => {
     const state = await removeImportedAccount(address)
-    setAccounts(state.accounts)
-    setAccount(state.accounts.find((item) => item.address === state.selectedAddress) ?? null)
+    await applyAccountState(state.selectedAddress, state.accounts)
   }
 
   const lockWallet = () => {

@@ -5,6 +5,7 @@ import RiskPanel from '../components/RiskPanel'
 import {
   fetchBalance,
   fetchSwapQuoteByInputAmount,
+  recordLocalActivity,
   SwapQuote,
   SwapTargetToken,
   swapByInputAmount
@@ -43,12 +44,13 @@ const getPayTokenByReceiveToken = (receiveToken: SwapTargetToken): SwapTargetTok
   receiveToken === 'MON' ? 'eGold' : 'MON'
 
 const SwapPage = () => {
-  const { account, balance, setBalance } = useWallet()
+  const { account, balance, setBalance, setHistory } = useWallet()
   const [receiveToken, setReceiveToken] = useState<SwapTargetToken>('eGold')
   const [payAmount, setPayAmount] = useState('')
   const [quote, setQuote] = useState<SwapQuote | null>(null)
   const [quoteError, setQuoteError] = useState('')
   const [error, setError] = useState('')
+  const [historyWarning, setHistoryWarning] = useState('')
   const [txHash, setTxHash] = useState('')
   const [isQuoting, setIsQuoting] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -166,6 +168,7 @@ const SwapPage = () => {
   const handleSwap = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
+    setHistoryWarning('')
     setTxHash('')
 
     if (parsedPayAmount === null) {
@@ -191,8 +194,25 @@ const SwapPage = () => {
       setTxHash(tx)
       setPayAmount('')
       setQuote(null)
-      const nextBalance = await fetchBalance()
-      setBalance(nextBalance)
+
+      try {
+        const nextHistory = await recordLocalActivity({
+          type: 'dex',
+          amount: `${payAmount.trim()} ${payToken}`,
+          hash: tx
+        })
+        setHistory(nextHistory)
+      } catch (activityError) {
+        console.warn('Failed to record local swap activity', activityError)
+        setHistoryWarning('Transaction sent, but failed to save local activity.')
+      }
+
+      try {
+        const nextBalance = await fetchBalance()
+        setBalance(nextBalance)
+      } catch (balanceError) {
+        console.warn('Failed to refresh balance after swap', balanceError)
+      }
     } catch (swapError) {
       if (swapError instanceof Error) {
         setError(swapError.message)
@@ -391,6 +411,22 @@ const SwapPage = () => {
             }}
           >
             {error}
+          </div>
+        ) : null}
+        {historyWarning ? (
+          <div
+            style={{
+              fontSize: 12,
+              color: '#7a4b00',
+              background: '#fff5df',
+              border: '1px solid #f1b83a',
+              padding: '8px 10px',
+              borderRadius: 10,
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word'
+            }}
+          >
+            {historyWarning}
           </div>
         ) : null}
         {txHash ? (
