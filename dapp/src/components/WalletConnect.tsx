@@ -29,7 +29,7 @@ function handleKeyboardActivate(
  * Displays wallet connection status and provides connect/disconnect actions
  */
 export function WalletConnect() {
-  const { account, chainId, isConnected, isLoading, connect, disconnect } = useWallet()
+  const { account, chainId, isConnected, walletName, isLoading, connect, disconnect } = useWallet()
 
   // Connected state
   if (isConnected && account) {
@@ -39,6 +39,11 @@ export function WalletConnect() {
           <Wallet className="h-4 w-4" />
           <span className="font-mono">{formatAddress(account)}</span>
         </Badge>
+        {walletName && (
+          <Badge variant="outline" className="px-3 py-1.5">
+            {walletName}
+          </Badge>
+        )}
         {chainId && (
           <Badge variant="outline" className="px-3 py-1.5">
             Chain ID: {parseInt(chainId, 16)}
@@ -47,7 +52,7 @@ export function WalletConnect() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={disconnect}
+          onClick={() => disconnect({ requireReauth: true })}
           className="border border-[var(--card-border)]"
         >
           断开连接
@@ -86,7 +91,7 @@ export function WalletConnect() {
 
       {isLoading && (
         <p className="wallet-auth-hint">
-          需手动打开 MetaMask 插件并确认连接
+          需手动打开钱包插件并确认连接
         </p>
       )}
     </div>
