@@ -14,10 +14,18 @@ export function useWallet() {
     chainId: null,
     isConnected: false,
   })
+  const [walletName, setWalletName] = useState<'LumiWallet' | 'MetaMask' | null>(null)
+  const [requireReconnectAuth, setRequireReconnectAuth] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   const showException = useCallback((title: string, message: string) => {
     showErrorDialog(title, message)
+  }, [])
+
+  const getWalletName = useCallback((provider: LumiWalletProvider): 'LumiWallet' | 'MetaMask' | null => {
+    if (provider.isLumiWallet) return 'LumiWallet'
+    if (provider.isMetaMask) return 'MetaMask'
+    return null
   }, [])
 
   /**
@@ -28,12 +36,12 @@ export function useWallet() {
       return null
     }
 
-    // EIP-6963/multi-provider scenario: prefer MetaMask when available.
+    // EIP-6963/multi-provider scenario: prefer LumiWallet when available.
     const provider = window.ethereum as LumiWalletProvider & { providers?: LumiWalletProvider[] }
     if (Array.isArray(provider.providers) && provider.providers.length > 0) {
-      const metamaskProvider = provider.providers.find((item) => item.isMetaMask)
-      if (metamaskProvider) {
-        return metamaskProvider
+      const lumiWalletProvider = provider.providers.find((item) => item.isLumiWallet)
+      if (lumiWalletProvider) {
+        return lumiWalletProvider
       }
     }
 
@@ -45,6 +53,10 @@ export function useWallet() {
    * Calls eth_accounts (no permission prompt)
    */
   const checkConnection = useCallback(async () => {
+    if (requireReconnectAuth) {
+      return
+    }
+
     const provider = getProvider()
     if (!provider) {
       return
@@ -60,6 +72,7 @@ export function useWallet() {
       })) as string
 
       if (accounts.length > 0) {
+        setWalletName(getWalletName(provider))
         setState({
           account: accounts[0],
           chainId,
@@ -70,7 +83,7 @@ export function useWallet() {
       console.error('检查连接失败:', err)
       showException('连接状态检查失败', '检查钱包连接状态失败，请稍后重试。')
     }
-  }, [getProvider, showException])
+  }, [getProvider, getWalletName, requireReconnectAuth, showException])
 
   /**
    * Connect wallet
@@ -86,6 +99,24 @@ export function useWallet() {
     setIsLoading(true)
 
     try {
+      if (requireReconnectAuth) {
+        // Ask wallet to re-authorize accounts so user can switch accounts on reconnect.
+        try {
+          await provider.request({
+            method: 'wallet_requestPermissions',
+            params: [{ eth_accounts: {} }],
+          })
+        } catch (err: unknown) {
+          if (err && typeof err === 'object' && 'code' in err) {
+            const permissionError = err as { code: number }
+            if (permissionError.code === 4001 || permissionError.code === -32002) {
+              throw err
+            }
+          }
+          // Fallback: continue with eth_requestAccounts when permission API is unavailable.
+        }
+      }
+
       const accounts = (await provider.request({
         method: 'eth_requestAccounts',
       })) as string[]
@@ -99,6 +130,8 @@ export function useWallet() {
         return
       }
 
+      setWalletName(getWalletName(provider))
+      setRequireReconnectAuth(false)
       setState({
         account: accounts[0],
         chainId,
@@ -111,8 +144,8 @@ export function useWallet() {
           showException('连接已取消', '你已取消钱包连接请求。')
         } else if (error.code === -32002) {
           showDialog({
-            title: '请前往 MetaMask 完成授权',
-            message: '检测到已有待处理的连接请求。请点击浏览器工具栏中的 MetaMask 插件，在插件内确认连接。',
+            title: '请前往钱包插件完成授权',
+            message: '检测到已有待处理的连接请求。请点击浏览器工具栏中的钱包插件，在插件内确认连接。',
             variant: 'warning',
             actionText: '去处理',
           })
@@ -125,12 +158,16 @@ export function useWallet() {
     } finally {
       setIsLoading(false)
     }
-  }, [getProvider, showException])
+  }, [getProvider, getWalletName, requireReconnectAuth, showException])
 
   /**
    * Disconnect wallet (clear runtime state)
    */
-  const disconnect = useCallback(() => {
+  const disconnect = useCallback((options?: { requireReauth?: boolean }) => {
+    if (options?.requireReauth) {
+      setRequireReconnectAuth(true)
+    }
+    setWalletName(null)
     setState({
       account: null,
       chainId: null,
@@ -159,6 +196,7 @@ export function useWallet() {
         // User disconnected or revoked permission
         disconnect()
       } else {
+        setWalletName(getWalletName(provider))
         setState((prev) => ({
           ...prev,
           account: accounts[0],
@@ -192,21 +230,25 @@ export function useWallet() {
       provider.removeListener('chainChanged', handleChainChanged)
       provider.removeListener('disconnect', handleDisconnect)
     }
-  }, [getProvider, checkConnection, disconnect])
+  }, [getProvider, checkConnection, disconnect, getWalletName])
 
   return {
     // State
     account: state.account,
     chainId: state.chainId,
     isConnected: state.isConnected,
+    walletName,
     isLoading,
 
     // Actions
     connect,
     disconnect,
+    getWalletProvider: getProvider,
     getBrowserProvider,
 
     // Utilities
     hasProvider: !!getProvider(),
   }
 }
+
+export type UseWalletResult = ReturnType<typeof useWallet>

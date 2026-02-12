@@ -1,13 +1,22 @@
-export type ChainId = 'monad-testnet'
+import type { ExtensionChainId } from '../config/networks'
+
+export type ChainId = ExtensionChainId
 
 export interface WalletAccount {
   address: string
   label?: string
 }
 
-export interface Balance {
-  symbol: 'MON'
+export interface TokenBalanceItem {
+  symbol: string
   amount: string
+  decimals?: number
+  isNative?: boolean
+  contractAddress?: string
+}
+
+export interface Balance {
+  assets: TokenBalanceItem[]
 }
 
 export type TransactionType = 'transfer' | 'contract' | 'dex'

@@ -1,7 +1,4 @@
-/**
- * Network Configuration
- */
-export interface NetworkConfig {
+export interface ExtensionNetworkConfig {
   chainId: string
   chainIdDecimal: number
   name: string
@@ -14,10 +11,7 @@ export interface NetworkConfig {
   blockExplorerUrls?: string[]
 }
 
-/**
- * Monad Testnet Configuration
- */
-export const MONAD_TESTNET: NetworkConfig = {
+export const MONAD_TESTNET: ExtensionNetworkConfig = {
   chainId: '0x279F', // 10143 in hex
   chainIdDecimal: 10143,
   name: 'Monad Testnet',
@@ -30,14 +24,10 @@ export const MONAD_TESTNET: NetworkConfig = {
   blockExplorerUrls: ['https://testnet.monadexplorer.com'],
 }
 
-/**
- * Supported Networks
- */
-export const SUPPORTED_NETWORKS: Record<string, NetworkConfig> = {
-  monad: MONAD_TESTNET,
-}
+export const EXTENSION_NETWORKS = {
+  'monad-testnet': MONAD_TESTNET,
+} as const
 
-/**
- * Default Network
- */
-export const DEFAULT_NETWORK = MONAD_TESTNET
+export type ExtensionChainId = keyof typeof EXTENSION_NETWORKS
+
+export const DEFAULT_EXTENSION_NETWORK = MONAD_TESTNET

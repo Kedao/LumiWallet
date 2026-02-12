@@ -1,8 +1,8 @@
-import { useWallet } from '@/hooks/useWallet'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Wallet, Loader2 } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
+import type { UseWalletResult } from '@/hooks/useWallet'
 
 /**
  * Format address: 0x1234...5678
@@ -28,8 +28,12 @@ function handleKeyboardActivate(
  * WalletConnect Component
  * Displays wallet connection status and provides connect/disconnect actions
  */
-export function WalletConnect() {
-  const { account, chainId, isConnected, isLoading, connect, disconnect } = useWallet()
+interface WalletConnectProps {
+  wallet: UseWalletResult
+}
+
+export function WalletConnect({ wallet }: WalletConnectProps) {
+  const { account, chainId, isConnected, walletName, isLoading, connect, disconnect } = wallet
 
   // Connected state
   if (isConnected && account) {
@@ -39,6 +43,11 @@ export function WalletConnect() {
           <Wallet className="h-4 w-4" />
           <span className="font-mono">{formatAddress(account)}</span>
         </Badge>
+        {walletName && (
+          <Badge variant="outline" className="px-3 py-1.5">
+            {walletName}
+          </Badge>
+        )}
         {chainId && (
           <Badge variant="outline" className="px-3 py-1.5">
             Chain ID: {parseInt(chainId, 16)}
@@ -47,7 +56,7 @@ export function WalletConnect() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={disconnect}
+          onClick={() => disconnect({ requireReauth: true })}
           className="border border-[var(--card-border)]"
         >
           断开连接
@@ -86,7 +95,7 @@ export function WalletConnect() {
 
       {isLoading && (
         <p className="wallet-auth-hint">
-          需手动打开 MetaMask 插件并确认连接
+          需手动打开钱包插件并确认连接
         </p>
       )}
     </div>

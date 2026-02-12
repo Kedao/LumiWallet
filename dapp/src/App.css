@@ -317,6 +317,105 @@
   color: var(--warning);
 }
 
+.approve-card {
+  margin-top: 1.2rem;
+  border-radius: 20px;
+  border: 1px solid rgba(11, 108, 255, 0.2);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 1rem;
+}
+
+.approve-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.approve-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-strong);
+}
+
+.approve-head h3 {
+  margin-top: 0.2rem;
+  font-size: 1rem;
+}
+
+.approve-icon {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(11, 108, 255, 0.12);
+  color: var(--brand-strong);
+}
+
+.approve-copy {
+  margin-top: 0.7rem;
+  color: var(--text-subtle);
+  font-size: 0.9rem;
+}
+
+.approve-form {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.approve-field {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.approve-field span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+.approve-input {
+  min-height: 2.65rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.62rem 0.85rem;
+  font-size: 0.92rem;
+  color: var(--text-main);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.approve-input::placeholder {
+  color: #8797aa;
+}
+
+.approve-input:focus-visible {
+  outline: none;
+  border-color: rgba(11, 108, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(11, 108, 255, 0.14);
+}
+
+.approve-actions {
+  margin-top: 0.1rem;
+}
+
+.approve-hint {
+  margin-top: 0.8rem;
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+}
+
+.approve-hash {
+  margin-top: 0.4rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--brand-strong);
+}
+
 .app-footer {
   padding: 0.5rem 0 1.5rem;
 }
@@ -391,6 +490,8 @@
   color: var(--text-subtle);
   font-size: 0.92rem;
   line-height: 1.52;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .app-dialog-action {
