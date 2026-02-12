@@ -2,7 +2,13 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
-import { fetchBalance, recordLocalActivity, sendTokenTransfer } from '../services/walletClient'
+import {
+  fetchBalance,
+  fetchRecentAddressTransactionSummary,
+  RecentAddressTransactionSummary,
+  recordLocalActivity,
+  sendTokenTransfer
+} from '../services/walletClient'
 import { useWallet } from '../state/walletStore'
 
 const tokenOptions = ['MON', 'eGold'] as const
@@ -34,6 +40,25 @@ const formatDisplayAmount = (amount: string): string => {
   })
 }
 
+const formatSummaryTime = (timestamp: number): string =>
+  new Date(timestamp).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+
+const formatDirectionLabel = (direction: 'in' | 'out' | 'self'): string => {
+  if (direction === 'in') {
+    return 'Incoming'
+  }
+  if (direction === 'out') {
+    return 'Outgoing'
+  }
+  return 'Self'
+}
+
 const SendPage = () => {
   const { account, balance, setBalance, setHistory } = useWallet()
   const [token, setToken] = useState<TokenOption>('MON')
@@ -42,7 +67,10 @@ const SendPage = () => {
   const [error, setError] = useState('')
   const [historyWarning, setHistoryWarning] = useState('')
   const [txHash, setTxHash] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isReviewingAddress, setIsReviewingAddress] = useState(false)
+  const [isSending, setIsSending] = useState(false)
+  const [reviewedAddress, setReviewedAddress] = useState('')
+  const [recentTxSummary, setRecentTxSummary] = useState<RecentAddressTransactionSummary | null>(null)
 
   useEffect(() => {
     if (!account) {
@@ -105,8 +133,10 @@ const SendPage = () => {
 
   const isInsufficientBalance = parsedAmount !== null && parsedAmount > parsedAvailable
   const isAmountInvalid = amount.trim().length > 0 && parsedAmount === null
+  const normalizedToAddress = toAddress.trim().toLowerCase()
+  const hasReviewedCurrentAddress = reviewedAddress.length > 0 && reviewedAddress === normalizedToAddress
   const isSubmitDisabled =
-    isSubmitting || toAddress.trim().length === 0 || parsedAmount === null || isInsufficientBalance
+    isReviewingAddress || isSending || toAddress.trim().length === 0 || parsedAmount === null || isInsufficientBalance
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -123,11 +153,31 @@ const SendPage = () => {
       return
     }
 
-    setIsSubmitting(true)
+    if (!hasReviewedCurrentAddress) {
+      setIsReviewingAddress(true)
+      try {
+        const summary = await fetchRecentAddressTransactionSummary(toAddress.trim())
+        setRecentTxSummary(summary)
+        setReviewedAddress(summary.address)
+      } catch (reviewError) {
+        if (reviewError instanceof Error) {
+          setError(reviewError.message)
+        } else {
+          setError('Failed to query recent transactions for this address.')
+        }
+      } finally {
+        setIsReviewingAddress(false)
+      }
+      return
+    }
+
+    setIsSending(true)
     try {
       const hash = await sendTokenTransfer(token, toAddress.trim(), amount.trim())
       setTxHash(hash)
       setAmount('')
+      setReviewedAddress('')
+      setRecentTxSummary(null)
 
       try {
         const nextHistory = await recordLocalActivity({
@@ -155,7 +205,7 @@ const SendPage = () => {
         setError('Failed to send transaction.')
       }
     } finally {
-      setIsSubmitting(false)
+      setIsSending(false)
     }
   }
 
@@ -205,7 +255,13 @@ const SendPage = () => {
           <span style={{ fontSize: 12, fontWeight: 600 }}>To Address</span>
           <input
             value={toAddress}
-            onChange={(event) => setToAddress(event.target.value)}
+            onChange={(event) => {
+              setToAddress(event.target.value)
+              setError('')
+              setTxHash('')
+              setReviewedAddress('')
+              setRecentTxSummary(null)
+            }}
             placeholder="0x..."
             style={{
               width: '100%',
@@ -322,6 +378,74 @@ const SendPage = () => {
             </div>
           </div>
         ) : null}
+        {recentTxSummary ? (
+          <div
+            style={{
+              fontSize: 12,
+              color: '#1d4f7a',
+              background: '#ecf5ff',
+              border: '1px solid #b8d5f5',
+              padding: '10px 12px',
+              borderRadius: 10,
+              display: 'grid',
+              gap: 8,
+              minWidth: 0
+            }}
+          >
+            <div style={{ fontWeight: 700 }}>Recent On-chain Activity</div>
+            <div>
+              Address checked:
+              <div style={{ marginTop: 2 }}>
+                <HashText value={recentTxSummary.address} mode="wrap" fontSize={11} color="#1d4f7a" />
+              </div>
+            </div>
+            <div>
+              Monadscan returned {recentTxSummary.total} recent transaction
+              {recentTxSummary.total === 1 ? '' : 's'} (in: {recentTxSummary.incomingCount}, out:{' '}
+              {recentTxSummary.outgoingCount}, self: {recentTxSummary.selfCount}, limit:{' '}
+              {recentTxSummary.requestedLimit}).
+            </div>
+            {recentTxSummary.records.length === 0 ? (
+              <div>No recent activity found for this address from Monadscan.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {recentTxSummary.records.map((item) => (
+                  <div
+                    key={item.hash}
+                    style={{
+                      borderRadius: 8,
+                      border: '1px solid #c6def7',
+                      padding: '8px 10px',
+                      background: '#f6fbff',
+                      display: 'grid',
+                      gap: 4,
+                      minWidth: 0
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontWeight: 600 }}>{formatDirectionLabel(item.direction)}</span>
+                      <span>{formatDisplayAmount(item.value)} MON</span>
+                    </div>
+                    <div style={{ color: '#386180' }}>{formatSummaryTime(item.timestamp)}</div>
+                    <div>
+                      Counterparty:
+                      <div style={{ marginTop: 2 }}>
+                        <HashText value={item.counterparty} mode="wrap" fontSize={11} color="#386180" />
+                      </div>
+                    </div>
+                    <div>
+                      Tx:
+                      <div style={{ marginTop: 2 }}>
+                        <HashText value={item.hash} mode="wrap" fontSize={11} color="#386180" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {hasReviewedCurrentAddress ? <div>Address review completed. Click the button again to send.</div> : null}
+          </div>
+        ) : null}
 
         <RiskPanel />
 
@@ -339,7 +463,13 @@ const SendPage = () => {
             opacity: isSubmitDisabled ? 0.6 : 1
           }}
         >
-          {isSubmitting ? 'Sending...' : 'Review & Send'}
+          {isReviewingAddress
+            ? 'Checking Address Activity...'
+            : isSending
+              ? 'Sending...'
+              : hasReviewedCurrentAddress
+                ? 'Send Now'
+                : 'Review Address Activity'}
         </button>
       </form>
     </section>

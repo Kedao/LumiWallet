@@ -108,6 +108,28 @@ export interface LocalActivityInput {
   to?: string
 }
 
+export interface RecentAddressTransaction {
+  hash: string
+  blockNumber: number
+  timestamp: number
+  from: string
+  to: string | null
+  value: string
+  direction: 'in' | 'out' | 'self'
+  counterparty: string
+}
+
+export interface RecentAddressTransactionSummary {
+  address: string
+  fetchedAt: number
+  requestedLimit: number
+  total: number
+  incomingCount: number
+  outgoingCount: number
+  selfCount: number
+  records: RecentAddressTransaction[]
+}
+
 const AUTH_STORAGE_KEY = 'lumi.wallet.auth.v1'
 const ACCOUNTS_STORAGE_KEY = 'lumi.wallet.accounts.v1'
 const ACTIVITY_STORAGE_KEY = 'lumi.wallet.activity.v1'
@@ -119,6 +141,9 @@ const PBKDF2_SALT_BYTES = 16
 const AES_GCM_IV_BYTES = 12
 const PRIVATE_KEY_BYTES = 32
 const MAX_ACTIVITY_RECORDS_PER_ACCOUNT = 50
+const RECENT_ADDRESS_TX_LIMIT = 8
+const MONADSCAN_V2_API_BASE_URL = 'https://api.etherscan.io/v2/api'
+const MONADSCAN_API_KEY = String(import.meta.env.VITE_MONADSCAN_API_KEY ?? '').trim()
 const EGOLD_CONTRACT_ADDRESS = getAddress('0xee7977f3854377f6b8bdf6d0b715277834936b24')
 const AMM_CONTRACT_ADDRESS = getAddress('0x64a359881660bc623017a660f2322489c4cdda8b')
 const ERC20_ABI = [
@@ -1086,6 +1111,119 @@ export const fetchHistory = async (): Promise<TransactionRecord[]> => {
     return getActivityByAccount(nextStored, accountAddress)
   } catch {
     return []
+  }
+}
+
+export const fetchRecentAddressTransactionSummary = async (
+  address: string,
+  options?: { limit?: number }
+): Promise<RecentAddressTransactionSummary> => {
+  const normalizedAddress = validateAddress(address)
+  const limit = Math.max(1, Math.min(options?.limit ?? RECENT_ADDRESS_TX_LIMIT, 25))
+  if (!MONADSCAN_API_KEY) {
+    throw new Error('Missing VITE_MONADSCAN_API_KEY in .env.')
+  }
+  const query = new URLSearchParams({
+    chainid: String(DEFAULT_EXTENSION_NETWORK.chainIdDecimal),
+    module: 'account',
+    action: 'txlist',
+    address: getAddress(normalizedAddress),
+    page: '1',
+    offset: String(limit),
+    sort: 'desc',
+    apikey: MONADSCAN_API_KEY
+  })
+  const response = await fetch(`${MONADSCAN_V2_API_BASE_URL}?${query.toString()}`)
+  if (!response.ok) {
+    throw new Error('Failed to query Monadscan API.')
+  }
+
+  const payload = await response.json() as unknown
+  if (!isRecord(payload)) {
+    throw new Error('Unexpected Monadscan API response.')
+  }
+
+  const status = typeof payload.status === 'string' ? payload.status : ''
+  const message = typeof payload.message === 'string' ? payload.message : ''
+  const result = payload.result
+  if (Array.isArray(result) && status === '0' && message.toLowerCase().includes('no transactions')) {
+    return {
+      address: normalizedAddress,
+      fetchedAt: Date.now(),
+      requestedLimit: limit,
+      total: 0,
+      incomingCount: 0,
+      outgoingCount: 0,
+      selfCount: 0,
+      records: []
+    }
+  }
+  if (!Array.isArray(result)) {
+    const errorHint = typeof result === 'string' && result.trim() ? result : 'Unexpected Monadscan API response.'
+    throw new Error(errorHint)
+  }
+
+  const records: RecentAddressTransaction[] = result
+    .map((item) => {
+      if (!isRecord(item)) {
+        return null
+      }
+      const hash = typeof item.hash === 'string' ? item.hash : ''
+      const fromRaw = typeof item.from === 'string' ? item.from : ''
+      const toRaw = typeof item.to === 'string' ? item.to : ''
+      const valueRaw = typeof item.value === 'string' ? item.value : ''
+      const timestampRaw = typeof item.timeStamp === 'string' ? item.timeStamp : ''
+      const blockRaw = typeof item.blockNumber === 'string' ? item.blockNumber : ''
+      if (!hash || !fromRaw) {
+        return null
+      }
+
+      let value = '0'
+      try {
+        value = formatEther(BigInt(valueRaw || '0'))
+      } catch {
+        value = '0'
+      }
+
+      const from = normalizeAddress(fromRaw)
+      const to = toRaw ? normalizeAddress(toRaw) : null
+      const isFromMatch = from === normalizedAddress
+      const isToMatch = to === normalizedAddress
+      const direction = isFromMatch && isToMatch ? 'self' : isFromMatch ? 'out' : 'in'
+      const counterparty =
+        direction === 'out'
+          ? to ?? '(contract creation)'
+          : direction === 'in'
+            ? from
+            : to ?? from
+
+      return {
+        hash,
+        blockNumber: Number(blockRaw || '0'),
+        timestamp: Number(timestampRaw || '0') * 1000,
+        from,
+        to,
+        value,
+        direction,
+        counterparty
+      } satisfies RecentAddressTransaction
+    })
+    .filter((item): item is RecentAddressTransaction => item !== null)
+    .slice(0, limit)
+
+  const incomingCount = records.filter((item) => item.direction === 'in').length
+  const outgoingCount = records.filter((item) => item.direction === 'out').length
+  const selfCount = records.filter((item) => item.direction === 'self').length
+
+  return {
+    address: normalizedAddress,
+    fetchedAt: Date.now(),
+    requestedLimit: limit,
+    total: records.length,
+    incomingCount,
+    outgoingCount,
+    selfCount,
+    records
   }
 }
 
