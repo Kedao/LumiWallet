@@ -2,7 +2,7 @@ const INPAGE_SOURCE = 'lumiwallet-inpage'
 const CONTENT_SCRIPT_SOURCE = 'lumiwallet-contentscript'
 const RPC_REQUEST = 'LUMI_DAPP_RPC_REQUEST'
 const RPC_RESPONSE = 'LUMI_DAPP_RPC_RESPONSE'
-const PROVIDER_REQUEST_TIMEOUT_MS = 15_000
+const PROVIDER_REQUEST_TIMEOUT_MS = 130_000
 const CHANNEL_TOKEN_QUERY_KEY = 'lumiChannelToken'
 
 interface ProviderRequestArgs {

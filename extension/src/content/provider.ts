@@ -50,7 +50,7 @@ interface InpageRpcResponseMessage {
   error?: JsonRpcErrorPayload
 }
 
-type InteractionAction = 'login' | 'authorize' | 'query' | 'rpc'
+type InteractionAction = 'login' | 'authorize' | 'signature' | 'transaction' | 'query' | 'rpc'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -114,6 +114,17 @@ const classifyInteractionAction = (method: string): InteractionAction => {
   }
   if (method === 'wallet_requestPermissions' || method === 'wallet_getPermissions') {
     return 'authorize'
+  }
+  if (
+    method === 'personal_sign' ||
+    method === 'eth_signTypedData' ||
+    method === 'eth_signTypedData_v3' ||
+    method === 'eth_signTypedData_v4'
+  ) {
+    return 'signature'
+  }
+  if (method === 'eth_sendTransaction') {
+    return 'transaction'
   }
   if (method === 'eth_accounts' || method === 'eth_chainId' || method === 'net_version') {
     return 'query'

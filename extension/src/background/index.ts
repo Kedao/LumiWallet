@@ -1,3 +1,15 @@
+import {
+  Contract,
+  formatUnits,
+  getAddress,
+  getBytes,
+  isHexString,
+  JsonRpcProvider,
+  Wallet,
+  type TransactionRequest,
+  type TypedDataDomain,
+  type TypedDataField
+} from 'ethers'
 import { DEFAULT_EXTENSION_NETWORK } from '../config/networks'
 
 const RPC_REQUEST = 'LUMI_DAPP_RPC_REQUEST'
@@ -8,12 +20,20 @@ const DAPP_INTERACTION_LOGS_STORAGE_KEY = 'lumi.wallet.dapp.interactions.v1'
 const DAPP_PENDING_APPROVALS_STORAGE_KEY = 'lumi.wallet.dapp.pending-approvals.v1'
 const ACCOUNTS_STORAGE_KEY = 'lumi.wallet.accounts.v1'
 const WALLET_SESSION_STATE_KEY = 'lumi.wallet.session.v1'
+const WALLET_SESSION_SECRET_KEY = 'lumi.wallet.session.secret.v1'
 const MAX_DAPP_INTERACTION_LOGS = 300
-const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000
+const APPROVAL_TIMEOUT_MS = 120 * 1000
 const APPROVAL_WINDOW_WIDTH = 380
 const APPROVAL_WINDOW_HEIGHT = 640
+const ERC20_APPROVE_SELECTOR = '0x095ea7b3'
+const MIN_ERC20_APPROVE_DATA_LENGTH = 2 + 8 + 64 + 64
+const ERC20_METADATA_ABI = [
+  'function symbol() view returns (string)',
+  'function decimals() view returns (uint8)'
+]
 
 let interactionLogWriteQueue: Promise<void> = Promise.resolve()
+const rpcProvider = new JsonRpcProvider(DEFAULT_EXTENSION_NETWORK.rpcUrls[0])
 
 interface JsonRpcErrorPayload {
   code: number
@@ -67,6 +87,11 @@ interface ApprovalDecideSuccessMessage {
 
 interface StoredImportedAccount {
   address: string
+  cipher: {
+    algorithm: 'AES-GCM'
+    ivBase64: string
+  }
+  privateKeyCiphertextBase64: string
 }
 
 interface StoredAccountsV1 {
@@ -86,7 +111,20 @@ interface StoredWalletSessionStateV1 {
   updatedAt: string
 }
 
-type DappInteractionAction = 'login' | 'authorize' | 'account_query' | 'network_query' | 'rpc'
+interface StoredWalletSessionSecretV1 {
+  version: 1
+  secretHex: string
+  updatedAt: string
+}
+
+type DappInteractionAction =
+  | 'login'
+  | 'authorize'
+  | 'signature'
+  | 'transaction'
+  | 'account_query'
+  | 'network_query'
+  | 'rpc'
 
 type DappInteractionStatus = 'success' | 'error'
 
@@ -110,7 +148,20 @@ interface PendingApprovalRecord {
   origin: string
   method: string
   createdAt: string
+  details?: PendingApprovalDetails
 }
+
+interface PendingApprovalErc20ApproveDetails {
+  type: 'erc20_approve'
+  tokenAddress: string
+  tokenSymbol: string | null
+  tokenDecimals: number | null
+  amount: string | null
+  amountRaw: string
+  spender: string
+}
+
+type PendingApprovalDetails = PendingApprovalErc20ApproveDetails
 
 interface StoredPendingApprovalsV1 {
   version: 1
@@ -162,6 +213,21 @@ const isApprovalDecideRequestMessage = (value: unknown): value is ApprovalDecide
   )
 }
 
+const isStoredImportedAccount = (value: unknown): value is StoredImportedAccount => {
+  if (!isRecord(value)) {
+    return false
+  }
+  if (!isRecord(value.cipher)) {
+    return false
+  }
+  return (
+    typeof value.address === 'string' &&
+    value.cipher.algorithm === 'AES-GCM' &&
+    typeof value.cipher.ivBase64 === 'string' &&
+    typeof value.privateKeyCiphertextBase64 === 'string'
+  )
+}
+
 const isStoredAccountsV1 = (value: unknown): value is StoredAccountsV1 => {
   if (!isRecord(value)) {
     return false
@@ -172,7 +238,7 @@ const isStoredAccountsV1 = (value: unknown): value is StoredAccountsV1 => {
   if (value.selectedAddress !== null && typeof value.selectedAddress !== 'string') {
     return false
   }
-  return value.accounts.every((item) => isRecord(item) && typeof item.address === 'string')
+  return value.accounts.every((item) => isStoredImportedAccount(item))
 }
 
 const isStoredDappPermissionsV1 = (value: unknown): value is StoredDappPermissionsV1 => {
@@ -197,9 +263,22 @@ const isStoredWalletSessionStateV1 = (value: unknown): value is StoredWalletSess
   )
 }
 
+const isStoredWalletSessionSecretV1 = (value: unknown): value is StoredWalletSessionSecretV1 => {
+  if (!isRecord(value)) {
+    return false
+  }
+  return (
+    value.version === 1 &&
+    typeof value.secretHex === 'string' &&
+    typeof value.updatedAt === 'string'
+  )
+}
+
 const isDappInteractionAction = (value: unknown): value is DappInteractionAction =>
   value === 'login' ||
   value === 'authorize' ||
+  value === 'signature' ||
+  value === 'transaction' ||
   value === 'account_query' ||
   value === 'network_query' ||
   value === 'rpc'
@@ -222,6 +301,26 @@ const isDappInteractionLogItem = (value: unknown): value is DappInteractionLogIt
   )
 }
 
+const isPendingApprovalErc20ApproveDetails = (
+  value: unknown
+): value is PendingApprovalErc20ApproveDetails => {
+  if (!isRecord(value)) {
+    return false
+  }
+  return (
+    value.type === 'erc20_approve' &&
+    typeof value.tokenAddress === 'string' &&
+    (typeof value.tokenSymbol === 'string' || value.tokenSymbol === null) &&
+    (typeof value.tokenDecimals === 'number' || value.tokenDecimals === null) &&
+    (typeof value.amount === 'string' || value.amount === null) &&
+    typeof value.amountRaw === 'string' &&
+    typeof value.spender === 'string'
+  )
+}
+
+const isPendingApprovalDetails = (value: unknown): value is PendingApprovalDetails =>
+  isPendingApprovalErc20ApproveDetails(value)
+
 const isStoredDappInteractionLogsV1 = (value: unknown): value is StoredDappInteractionLogsV1 => {
   if (!isRecord(value)) {
     return false
@@ -241,7 +340,8 @@ const isPendingApprovalRecord = (value: unknown): value is PendingApprovalRecord
     typeof value.id === 'string' &&
     typeof value.origin === 'string' &&
     typeof value.method === 'string' &&
-    typeof value.createdAt === 'string'
+    typeof value.createdAt === 'string' &&
+    (typeof value.details === 'undefined' || isPendingApprovalDetails(value.details))
   )
 }
 
@@ -299,6 +399,26 @@ const getSelectedAddress = async (): Promise<string | null> => {
   }
   const hasSelected = accounts.accounts.some((item) => item.address === accounts.selectedAddress)
   return hasSelected ? accounts.selectedAddress : null
+}
+
+const getSelectedStoredAccount = async (): Promise<StoredImportedAccount | null> => {
+  const accounts = await getStoredAccounts()
+  if (!accounts.selectedAddress) {
+    return null
+  }
+  return accounts.accounts.find((item) => item.address === accounts.selectedAddress) ?? null
+}
+
+const getWalletSessionSecretHex = async (): Promise<string | null> => {
+  const raw = await getSessionItem(WALLET_SESSION_SECRET_KEY)
+  if (!isStoredWalletSessionSecretV1(raw)) {
+    return null
+  }
+  const normalized = raw.secretHex.trim().toLowerCase().replace(/^0x/, '')
+  if (!isHexString(`0x${normalized}`, 32)) {
+    return null
+  }
+  return normalized
 }
 
 const getPermissions = async (): Promise<StoredDappPermissionsV1> => {
@@ -378,6 +498,17 @@ const classifyInteractionAction = (method: string): DappInteractionAction => {
   if (method === 'wallet_requestPermissions' || method === 'wallet_getPermissions') {
     return 'authorize'
   }
+  if (
+    method === 'personal_sign' ||
+    method === 'eth_signTypedData' ||
+    method === 'eth_signTypedData_v3' ||
+    method === 'eth_signTypedData_v4'
+  ) {
+    return 'signature'
+  }
+  if (method === 'eth_sendTransaction') {
+    return 'transaction'
+  }
   if (method === 'eth_accounts') {
     return 'account_query'
   }
@@ -399,6 +530,18 @@ const summarizeResult = (method: string, result: unknown): Record<string, unknow
   }
   if (method === 'net_version' && typeof result === 'string') {
     return { networkId: result }
+  }
+  if (
+    (method === 'personal_sign' ||
+      method === 'eth_signTypedData' ||
+      method === 'eth_signTypedData_v3' ||
+      method === 'eth_signTypedData_v4') &&
+    typeof result === 'string'
+  ) {
+    return { signatureLength: result.length }
+  }
+  if (method === 'eth_sendTransaction' && typeof result === 'string') {
+    return { txHash: result }
   }
   return {}
 }
@@ -499,6 +642,476 @@ const toRpcError = (code: number, message: string, data?: unknown): JsonRpcError
   data
 })
 
+const textDecoder = new TextDecoder()
+
+const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
+  bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+
+const fromBase64 = (value: string): Uint8Array => {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
+const normalizeAddress = (address: string): string => getAddress(address).toLowerCase()
+
+const tryNormalizeAddress = (value: string): string | null => {
+  try {
+    return normalizeAddress(value)
+  } catch {
+    return null
+  }
+}
+
+const parseQuantity = (value: unknown, field: string): bigint => {
+  if (typeof value === 'bigint') {
+    if (value < 0n) {
+      throw toRpcError(-32602, `Invalid ${field} value.`)
+    }
+    return value
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+      throw toRpcError(-32602, `Invalid ${field} value.`)
+    }
+    return BigInt(value)
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      throw toRpcError(-32602, `Invalid ${field} value.`)
+    }
+    try {
+      const parsed = BigInt(trimmed)
+      if (parsed < 0n) {
+        throw new Error('negative')
+      }
+      return parsed
+    } catch {
+      throw toRpcError(-32602, `Invalid ${field} value.`)
+    }
+  }
+  throw toRpcError(-32602, `Invalid ${field} value.`)
+}
+
+const parseNonce = (value: unknown): number => {
+  const parsed = parseQuantity(value, 'nonce')
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw toRpcError(-32602, 'Invalid nonce value.')
+  }
+  return Number(parsed)
+}
+
+const parseChainId = (value: unknown): bigint => parseQuantity(value, 'chainId')
+
+const assertUnlocked = async (): Promise<void> => {
+  const unlocked = await isWalletUnlocked()
+  if (!unlocked) {
+    throw toRpcError(4100, 'Wallet is locked. Please unlock LumiWallet first.')
+  }
+}
+
+const assertAuthorizedOrigin = async (normalizedOrigin: string): Promise<void> => {
+  const authorized = await isOriginAuthorized(normalizedOrigin)
+  if (!authorized) {
+    throw toRpcError(4100, 'Unauthorized origin. Please call eth_requestAccounts first.')
+  }
+}
+
+const decryptImportedPrivateKey = async (
+  account: StoredImportedAccount,
+  sessionSecretHex: string
+): Promise<string> => {
+  let key: CryptoKey
+  try {
+    const secretBytes = new Uint8Array(getBytes(`0x${sessionSecretHex}`))
+    key = await crypto.subtle.importKey(
+      'raw',
+      toArrayBuffer(secretBytes),
+      {
+        name: 'AES-GCM',
+        length: 256
+      },
+      false,
+      ['decrypt']
+    )
+  } catch {
+    throw toRpcError(4100, 'Wallet session is invalid. Please unlock LumiWallet again.')
+  }
+
+  try {
+    const iv = fromBase64(account.cipher.ivBase64)
+    const ciphertext = fromBase64(account.privateKeyCiphertextBase64)
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: toArrayBuffer(iv) },
+      key,
+      toArrayBuffer(ciphertext)
+    )
+    const normalizedPrivateKey = textDecoder
+      .decode(new Uint8Array(plaintext))
+      .trim()
+      .toLowerCase()
+      .replace(/^0x/, '')
+    if (!isHexString(`0x${normalizedPrivateKey}`, 32)) {
+      throw new Error('invalid private key')
+    }
+    return normalizedPrivateKey
+  } catch {
+    throw toRpcError(-32603, 'Unable to decrypt account private key.')
+  }
+}
+
+const getSelectedAccountWallet = async (): Promise<Wallet> => {
+  const account = await getSelectedStoredAccount()
+  if (!account) {
+    throw toRpcError(-32000, 'No account selected in wallet.')
+  }
+  const sessionSecretHex = await getWalletSessionSecretHex()
+  if (!sessionSecretHex) {
+    throw toRpcError(4100, 'Wallet session expired. Please unlock LumiWallet again.')
+  }
+
+  const privateKeyHex = await decryptImportedPrivateKey(account, sessionSecretHex)
+  const wallet = new Wallet(`0x${privateKeyHex}`, rpcProvider)
+  if (normalizeAddress(wallet.address) !== normalizeAddress(account.address)) {
+    throw toRpcError(-32603, 'Account private key does not match selected address.')
+  }
+  return wallet
+}
+
+const requestMethodApproval = async (
+  normalizedOrigin: string,
+  method: string,
+  rejectionMessage: string,
+  details?: PendingApprovalDetails
+): Promise<void> => {
+  const approved = await requestUserApproval(normalizedOrigin, method, details)
+  if (!approved) {
+    throw toRpcError(4001, rejectionMessage)
+  }
+}
+
+type PersonalSignPayload = {
+  address: string
+  message: string | Uint8Array
+}
+
+type ParsedTypedDataPayload = {
+  address: string
+  domain: TypedDataDomain
+  types: Record<string, Array<TypedDataField>>
+  message: Record<string, unknown>
+}
+
+const parsePersonalSignPayload = (params: unknown): PersonalSignPayload => {
+  if (!Array.isArray(params) || params.length < 2) {
+    throw toRpcError(-32602, 'Invalid personal_sign params.')
+  }
+  const first = params[0]
+  const second = params[1]
+  if (typeof first !== 'string' || typeof second !== 'string') {
+    throw toRpcError(-32602, 'Invalid personal_sign params.')
+  }
+
+  const secondAsAddress = tryNormalizeAddress(second)
+  if (secondAsAddress) {
+    let message: string | Uint8Array
+    try {
+      message = isHexString(first) ? getBytes(first) : first
+    } catch {
+      throw toRpcError(-32602, 'Invalid personal_sign params.')
+    }
+    return {
+      address: secondAsAddress,
+      message
+    }
+  }
+
+  const firstAsAddress = tryNormalizeAddress(first)
+  if (firstAsAddress) {
+    let message: string | Uint8Array
+    try {
+      message = isHexString(second) ? getBytes(second) : second
+    } catch {
+      throw toRpcError(-32602, 'Invalid personal_sign params.')
+    }
+    return {
+      address: firstAsAddress,
+      message
+    }
+  }
+
+  throw toRpcError(-32602, 'Invalid personal_sign params.')
+}
+
+const parseTypedDataDomain = (value: unknown): TypedDataDomain => {
+  if (!isRecord(value)) {
+    throw toRpcError(-32602, 'Invalid typed data domain.')
+  }
+  const domain: TypedDataDomain = {}
+  if (typeof value.name === 'string') {
+    domain.name = value.name
+  }
+  if (typeof value.version === 'string') {
+    domain.version = value.version
+  }
+  if (typeof value.chainId !== 'undefined') {
+    domain.chainId = parseChainId(value.chainId)
+  }
+  if (typeof value.verifyingContract === 'string') {
+    try {
+      domain.verifyingContract = getAddress(value.verifyingContract)
+    } catch {
+      throw toRpcError(-32602, 'Invalid typed data domain.')
+    }
+  }
+  if (typeof value.salt === 'string') {
+    domain.salt = value.salt
+  }
+  return domain
+}
+
+const parseTypedDataTypes = (value: unknown): Record<string, Array<TypedDataField>> => {
+  if (!isRecord(value)) {
+    throw toRpcError(-32602, 'Invalid typed data types.')
+  }
+  const types: Record<string, Array<TypedDataField>> = {}
+  for (const [typeName, fields] of Object.entries(value)) {
+    if (!Array.isArray(fields)) {
+      throw toRpcError(-32602, 'Invalid typed data types.')
+    }
+    const nextFields: TypedDataField[] = []
+    for (const field of fields) {
+      if (!isRecord(field) || typeof field.name !== 'string' || typeof field.type !== 'string') {
+        throw toRpcError(-32602, 'Invalid typed data types.')
+      }
+      nextFields.push({
+        name: field.name,
+        type: field.type
+      })
+    }
+    types[typeName] = nextFields
+  }
+  delete types.EIP712Domain
+  if (Object.keys(types).length === 0) {
+    throw toRpcError(-32602, 'Invalid typed data types.')
+  }
+  return types
+}
+
+const parseTypedDataPayloadInput = (value: unknown): ParsedTypedDataPayload => {
+  if (!Array.isArray(value) || value.length < 2) {
+    throw toRpcError(-32602, 'Invalid typed data sign params.')
+  }
+
+  const first = value[0]
+  const second = value[1]
+  let typedDataRaw: unknown
+  let normalizedAddress: string | null = null
+
+  if (typeof first === 'string') {
+    normalizedAddress = tryNormalizeAddress(first)
+    if (normalizedAddress) {
+      typedDataRaw = second
+    } else {
+      typedDataRaw = first
+    }
+  } else {
+    typedDataRaw = first
+  }
+
+  if (!normalizedAddress && typeof second === 'string') {
+    normalizedAddress = tryNormalizeAddress(second)
+  }
+  if (!normalizedAddress) {
+    throw toRpcError(-32602, 'Invalid typed data sign params.')
+  }
+
+  let parsedTypedData: unknown = typedDataRaw
+  if (typeof parsedTypedData === 'string') {
+    try {
+      parsedTypedData = JSON.parse(parsedTypedData) as unknown
+    } catch {
+      throw toRpcError(-32602, 'Invalid typed data payload.')
+    }
+  }
+  if (!isRecord(parsedTypedData)) {
+    throw toRpcError(-32602, 'Invalid typed data payload.')
+  }
+  if (!isRecord(parsedTypedData.message)) {
+    throw toRpcError(-32602, 'Invalid typed data payload.')
+  }
+
+  return {
+    address: normalizedAddress,
+    domain: parseTypedDataDomain(parsedTypedData.domain),
+    types: parseTypedDataTypes(parsedTypedData.types),
+    message: parsedTypedData.message
+  }
+}
+
+const parseSendTransactionRequest = (params: unknown, selectedAddress: string): TransactionRequest => {
+  if (!Array.isArray(params) || params.length === 0 || !isRecord(params[0])) {
+    throw toRpcError(-32602, 'Invalid eth_sendTransaction params.')
+  }
+  const tx = params[0]
+  if (typeof tx.from !== 'string') {
+    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: from is required.')
+  }
+  let normalizedFrom: string
+  try {
+    normalizedFrom = normalizeAddress(tx.from)
+  } catch {
+    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: invalid from address.')
+  }
+  if (normalizedFrom !== selectedAddress) {
+    throw toRpcError(4100, 'Requested from account does not match active wallet account.')
+  }
+
+  const request: TransactionRequest = {
+    from: normalizedFrom
+  }
+
+  if (typeof tx.to === 'string' && tx.to.trim()) {
+    try {
+      request.to = getAddress(tx.to)
+    } catch {
+      throw toRpcError(-32602, 'Invalid eth_sendTransaction params: invalid to address.')
+    }
+  } else if (typeof tx.to !== 'undefined' && tx.to !== null) {
+    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: invalid to address.')
+  }
+
+  if (typeof tx.value !== 'undefined') {
+    request.value = parseQuantity(tx.value, 'value')
+  }
+  if (typeof tx.data !== 'undefined') {
+    if (typeof tx.data !== 'string' || !isHexString(tx.data)) {
+      throw toRpcError(-32602, 'Invalid eth_sendTransaction params: data must be hex.')
+    }
+    request.data = tx.data
+  }
+  if (typeof tx.gas !== 'undefined') {
+    request.gasLimit = parseQuantity(tx.gas, 'gas')
+  }
+  if (typeof tx.gasPrice !== 'undefined') {
+    request.gasPrice = parseQuantity(tx.gasPrice, 'gasPrice')
+  }
+  if (typeof tx.maxFeePerGas !== 'undefined') {
+    request.maxFeePerGas = parseQuantity(tx.maxFeePerGas, 'maxFeePerGas')
+  }
+  if (typeof tx.maxPriorityFeePerGas !== 'undefined') {
+    request.maxPriorityFeePerGas = parseQuantity(tx.maxPriorityFeePerGas, 'maxPriorityFeePerGas')
+  }
+  if (typeof tx.nonce !== 'undefined') {
+    request.nonce = parseNonce(tx.nonce)
+  }
+  if (typeof tx.chainId !== 'undefined') {
+    const chainId = parseChainId(tx.chainId)
+    const expectedChainId = BigInt(DEFAULT_EXTENSION_NETWORK.chainIdDecimal)
+    if (chainId !== expectedChainId) {
+      throw toRpcError(4901, 'Unsupported chainId in eth_sendTransaction.')
+    }
+    request.chainId = Number(expectedChainId)
+  }
+
+  if (!request.to && !request.data) {
+    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: missing to or data.')
+  }
+  return request
+}
+
+const readErc20Metadata = async (
+  tokenAddress: string
+): Promise<{ symbol: string | null; decimals: number | null }> => {
+  const parseTokenDecimals = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 255) {
+      return value
+    }
+    if (typeof value === 'bigint' && value >= 0n && value <= 255n) {
+      return Number(value)
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+      if (!normalized) {
+        return null
+      }
+      try {
+        const parsed = BigInt(normalized)
+        if (parsed >= 0n && parsed <= 255n) {
+          return Number(parsed)
+        }
+      } catch {
+        return null
+      }
+    }
+    return null
+  }
+
+  const tokenContract = new Contract(tokenAddress, ERC20_METADATA_ABI, rpcProvider)
+  const [symbolResult, decimalsResult] = await Promise.allSettled([
+    tokenContract.symbol() as Promise<unknown>,
+    tokenContract.decimals() as Promise<unknown>
+  ])
+
+  const symbol =
+    symbolResult.status === 'fulfilled' && typeof symbolResult.value === 'string'
+      ? symbolResult.value
+      : null
+
+  const decimals =
+    decimalsResult.status === 'fulfilled' ? parseTokenDecimals(decimalsResult.value) : null
+
+  return { symbol, decimals }
+}
+
+const parseErc20ApproveDetails = async (
+  txRequest: TransactionRequest
+): Promise<PendingApprovalDetails | undefined> => {
+  if (typeof txRequest.to !== 'string' || typeof txRequest.data !== 'string') {
+    return undefined
+  }
+
+  const data = txRequest.data.toLowerCase()
+  if (!data.startsWith(ERC20_APPROVE_SELECTOR) || data.length < MIN_ERC20_APPROVE_DATA_LENGTH) {
+    return undefined
+  }
+
+  const encodedArgs = data.slice(10)
+  const spenderWord = encodedArgs.slice(0, 64)
+  const amountWord = encodedArgs.slice(64, 128)
+  if (spenderWord.length !== 64 || amountWord.length !== 64) {
+    return undefined
+  }
+
+  let spender: string
+  let tokenAddress: string
+  let amountRaw: bigint
+  try {
+    spender = getAddress(`0x${spenderWord.slice(24)}`)
+    tokenAddress = getAddress(txRequest.to)
+    amountRaw = BigInt(`0x${amountWord}`)
+  } catch {
+    return undefined
+  }
+
+  const metadata = await readErc20Metadata(tokenAddress)
+  const amount = typeof metadata.decimals === 'number' ? formatUnits(amountRaw, metadata.decimals) : null
+
+  return {
+    type: 'erc20_approve',
+    tokenAddress,
+    tokenSymbol: metadata.symbol,
+    tokenDecimals: metadata.decimals,
+    amount,
+    amountRaw: amountRaw.toString(),
+    spender
+  }
+}
+
 const parseWalletPermissionRequest = (params: unknown): boolean => {
   if (!Array.isArray(params) || params.length === 0) {
     return false
@@ -587,13 +1200,18 @@ const settleApprovalDecision = (approvalId: string, approved: boolean): boolean 
   return true
 }
 
-const requestUserApproval = async (origin: string, method: string): Promise<boolean> => {
+const requestUserApproval = async (
+  origin: string,
+  method: string,
+  details?: PendingApprovalDetails
+): Promise<boolean> => {
   const approvalId = createApprovalId()
   const record: PendingApprovalRecord = {
     id: approvalId,
     origin,
     method,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    details
   }
 
   await addPendingApproval(record)
@@ -615,10 +1233,7 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
   const method = message.payload.method
 
   if (method === 'eth_requestAccounts') {
-    const unlocked = await isWalletUnlocked()
-    if (!unlocked) {
-      throw toRpcError(4100, 'Wallet is locked. Please unlock LumiWallet first.')
-    }
+    await assertUnlocked()
 
     const normalizedOrigin = getValidatedOrigin(message.origin)
     const selectedAddress = await getSelectedAddress()
@@ -650,11 +1265,79 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
     return String(DEFAULT_EXTENSION_NETWORK.chainIdDecimal)
   }
 
-  if (method === 'wallet_requestPermissions') {
-    const unlocked = await isWalletUnlocked()
-    if (!unlocked) {
-      throw toRpcError(4100, 'Wallet is locked. Please unlock LumiWallet first.')
+  if (method === 'personal_sign') {
+    await assertUnlocked()
+
+    const normalizedOrigin = getValidatedOrigin(message.origin)
+    await assertAuthorizedOrigin(normalizedOrigin)
+
+    const selectedAddress = await getSelectedAddress()
+    if (!selectedAddress) {
+      throw toRpcError(-32000, 'No account selected in wallet.')
     }
+
+    const payload = parsePersonalSignPayload(message.payload.params)
+    if (payload.address !== normalizeAddress(selectedAddress)) {
+      throw toRpcError(4100, 'Requested account does not match active wallet account.')
+    }
+
+    const wallet = await getSelectedAccountWallet()
+    await requestMethodApproval(normalizedOrigin, method, 'User rejected signature request.')
+    return wallet.signMessage(payload.message)
+  }
+
+  if (
+    method === 'eth_signTypedData' ||
+    method === 'eth_signTypedData_v3' ||
+    method === 'eth_signTypedData_v4'
+  ) {
+    await assertUnlocked()
+
+    const normalizedOrigin = getValidatedOrigin(message.origin)
+    await assertAuthorizedOrigin(normalizedOrigin)
+
+    const selectedAddress = await getSelectedAddress()
+    if (!selectedAddress) {
+      throw toRpcError(-32000, 'No account selected in wallet.')
+    }
+
+    const payload = parseTypedDataPayloadInput(message.payload.params)
+    if (payload.address !== normalizeAddress(selectedAddress)) {
+      throw toRpcError(4100, 'Requested account does not match active wallet account.')
+    }
+
+    const wallet = await getSelectedAccountWallet()
+    await requestMethodApproval(normalizedOrigin, method, 'User rejected typed-data signature request.')
+    return wallet.signTypedData(payload.domain, payload.types, payload.message)
+  }
+
+  if (method === 'eth_sendTransaction') {
+    await assertUnlocked()
+
+    const normalizedOrigin = getValidatedOrigin(message.origin)
+    await assertAuthorizedOrigin(normalizedOrigin)
+
+    const selectedAddress = await getSelectedAddress()
+    if (!selectedAddress) {
+      throw toRpcError(-32000, 'No account selected in wallet.')
+    }
+    const normalizedSelectedAddress = normalizeAddress(selectedAddress)
+    const txRequest = parseSendTransactionRequest(message.payload.params, normalizedSelectedAddress)
+    const approvalDetails = await parseErc20ApproveDetails(txRequest)
+
+    const wallet = await getSelectedAccountWallet()
+    await requestMethodApproval(
+      normalizedOrigin,
+      method,
+      'User rejected transaction request.',
+      approvalDetails
+    )
+    const tx = await wallet.sendTransaction(txRequest)
+    return tx.hash
+  }
+
+  if (method === 'wallet_requestPermissions') {
+    await assertUnlocked()
 
     if (!parseWalletPermissionRequest(message.payload.params)) {
       throw toRpcError(-32602, 'Invalid wallet permission request.')

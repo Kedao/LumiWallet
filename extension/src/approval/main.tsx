@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { DEFAULT_EXTENSION_NETWORK } from '../config/networks'
 import '../styles/base.css'
 
 const APPROVAL_GET_REQUEST = 'LUMI_APPROVAL_GET_REQUEST'
@@ -10,12 +11,25 @@ interface JsonRpcErrorPayload {
   message: string
 }
 
+interface ApprovalErc20ApproveDetails {
+  type: 'erc20_approve'
+  tokenAddress: string
+  tokenSymbol: string | null
+  tokenDecimals: number | null
+  amount: string | null
+  amountRaw: string
+  spender: string
+}
+
+type ApprovalDetails = ApprovalErc20ApproveDetails
+
 interface ApprovalRequestData {
   id: string
   origin: string
   method: string
   createdAt: string
   selectedAddress: string | null
+  details?: ApprovalDetails
 }
 
 interface ApprovalGetResponse {
@@ -48,6 +62,26 @@ const parseApprovalIdFromUrl = (): string => {
   } catch {
     return ''
   }
+}
+
+const getBlockExplorerBaseUrl = (): string =>
+  DEFAULT_EXTENSION_NETWORK.blockExplorerUrls?.[0]?.replace(/\/+$/, '') ?? ''
+
+const getExplorerAddressUrl = (address: string): string => {
+  const base = getBlockExplorerBaseUrl()
+  const normalizedAddress = address.trim()
+  if (!base || !normalizedAddress) {
+    return ''
+  }
+  return `${base}/address/${normalizedAddress}`
+}
+
+const formatApproveAmount = (details: ApprovalErc20ApproveDetails): string => {
+  const tokenLabel = details.tokenSymbol?.trim() ? details.tokenSymbol : 'Token'
+  if (typeof details.amount !== 'string') {
+    return `Unavailable ${tokenLabel}`
+  }
+  return `${details.amount} ${tokenLabel}`
 }
 
 const ApprovalApp = () => {
@@ -134,7 +168,7 @@ const ApprovalApp = () => {
         }}
       >
         <div>
-          <h1 style={{ margin: 0, fontSize: 18 }}>Connect Request</h1>
+          <h1 style={{ margin: 0, fontSize: 18 }}>Approval Request</h1>
           <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
             LumiWallet approval required
           </div>
@@ -162,6 +196,44 @@ const ApprovalApp = () => {
                 {request.selectedAddress ?? 'No account selected'}
               </div>
             </div>
+            {request.details?.type === 'erc20_approve' ? (
+              <>
+                <div style={{ fontSize: 12 }}>
+                  <strong>Approve Amount</strong>
+                  <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
+                    {formatApproveAmount(request.details)}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <strong>Token</strong>
+                  <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
+                    {(() => {
+                      const tokenLabel = request.details?.tokenSymbol?.trim() || 'Unknown Token'
+                      const explorerUrl = getExplorerAddressUrl(request.details?.tokenAddress ?? '')
+                      if (!explorerUrl) {
+                        return tokenLabel
+                      }
+                      return (
+                        <a
+                          href={explorerUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}
+                        >
+                          {tokenLabel}
+                        </a>
+                      )
+                    })()}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <strong>Spender</strong>
+                  <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
+                    {request.details.spender}
+                  </div>
+                </div>
+              </>
+            ) : null}
           </div>
         ) : null}
 
@@ -235,4 +307,3 @@ createRoot(container).render(
     <ApprovalApp />
   </React.StrictMode>
 )
-
