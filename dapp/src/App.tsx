@@ -1,4 +1,6 @@
+import { useWallet } from '@/hooks/useWallet'
 import { WalletConnect } from '@/components/WalletConnect'
+import { ApproveRequestCard } from '@/components/ApproveRequestCard'
 import { GlobalDialogHost } from '@/components/ui/GlobalDialogHost'
 import './App.css'
 
@@ -21,7 +23,8 @@ const features = [
 ]
 
 const progress = [
-  { done: true, label: 'MetaMask 钱包连接' },
+  { done: true, label: '钱包连接（EIP-1193）' },
+  { done: true, label: 'ERC20 授权（Approve）通用能力' },
   { done: false, label: '代币转账功能' },
   { done: false, label: '合约交互功能' },
   { done: false, label: 'DEX 交易功能' },
@@ -29,6 +32,8 @@ const progress = [
 ]
 
 function App() {
+  const wallet = useWallet()
+
   return (
     <div className="app-shell">
       <div className="app-orb app-orb-left" aria-hidden />
@@ -53,7 +58,7 @@ function App() {
               Testnet Preview
             </div>
             <div className="wallet-connect-wrap">
-              <WalletConnect />
+              <WalletConnect wallet={wallet} />
             </div>
           </div>
         </div>
@@ -96,6 +101,8 @@ function App() {
               ))}
             </ul>
           </section>
+
+          <ApproveRequestCard wallet={wallet} />
         </section>
       </main>
 

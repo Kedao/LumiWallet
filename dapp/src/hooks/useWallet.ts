@@ -243,9 +243,12 @@ export function useWallet() {
     // Actions
     connect,
     disconnect,
+    getWalletProvider: getProvider,
     getBrowserProvider,
 
     // Utilities
     hasProvider: !!getProvider(),
   }
 }
+
+export type UseWalletResult = ReturnType<typeof useWallet>
