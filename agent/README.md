@@ -3,16 +3,23 @@
 AI 分析服务模块。
 
 **运行方式**
-1. 安装依赖
+1. 安装依赖（在 `agent/` 目录）
 
 ```bash
-pip install -r agent/service/requirements.txt
+uv sync
 ```
 
-2. 启动服务
+2. 配置环境变量
 
 ```bash
-uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
+cp .env.example .env
+# 然后编辑 .env，填入真实 MODEL_API_KEY / MODEL_BASE_URL / MODEL_NAME
+```
+
+3. 启动服务
+
+```bash
+uv run service/main.py
 ```
 
 **环境变量**
@@ -21,6 +28,16 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
 - `MODEL_NAME`：模型名称
 - `MODEL_API_KEY`：API Key
 - `REQUEST_TIMEOUT_S`：LLM 请求超时秒数
+
+**测试命令**
+- 单元测试（不依赖外部接口）：
+```bash
+uv run pytest -q tests/test_risk_service.py
+```
+- 集成测试（需要服务已启动）：
+```bash
+uv run tests/integration_api_test.py
+```
 
 **接口**
 - `POST /risk/phishing`
