@@ -1,4 +1,16 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+AGENT_DIR = ROOT_DIR / "agent"
+
+for env_path in (AGENT_DIR / ".env", ROOT_DIR / ".env"):
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
+        break
 
 
 def env(key: str, default: str | None = None) -> str | None:
@@ -12,7 +24,6 @@ class Settings:
         self.model_base_url = env("MODEL_BASE_URL", "")
         self.model_name = env("MODEL_NAME", "")
         self.model_api_key = env("MODEL_API_KEY", "")
-        self.llm_disabled = env("LLM_DISABLED", "false").lower() == "true"
         self.request_timeout_s = int(env("REQUEST_TIMEOUT_S", "12"))
 
 

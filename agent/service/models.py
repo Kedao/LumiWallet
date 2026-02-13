@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -56,6 +56,7 @@ class AccountTransaction(BaseModel):
 class PhishingRiskRequest(BaseModel):
     address: str
     chain: str = "monad"
+    lang: Optional[str] = Field(default="zh", description="Response language: zh | en")
     interaction_type: Optional[str] = Field(
         default=None, description="transfer | approve | contract_call"
     )
@@ -118,6 +119,7 @@ class TokenBehaviorFlags(BaseModel):
 class ContractRiskRequest(BaseModel):
     contract_address: str
     chain: str = "monad"
+    lang: Optional[str] = Field(default="zh", description="Response language: zh | en")
     interaction_type: Optional[str] = Field(
         default=None, description="approve | swap | mint | stake | contract_call"
     )
@@ -152,6 +154,7 @@ class PoolStats(BaseModel):
 class SlippageRiskRequest(BaseModel):
     pool_address: str
     chain: str = "monad"
+    lang: Optional[str] = Field(default="zh", description="Response language: zh | en")
     token_in: str
     token_out: str
     amount_in: str
@@ -165,15 +168,54 @@ class SlippageRiskRequest(BaseModel):
     extra_features: Optional[Dict[str, Any]] = None
 
 
-class RiskDetails(BaseModel):
-    reasons: List[str] = Field(default_factory=list)
-    evidence: List[str] = Field(default_factory=list)
-    data_gaps: List[str] = Field(default_factory=list)
-    extra: Dict[str, Any] = Field(default_factory=dict)
+class RiskReason(BaseModel):
+    reason: str = Field(description="主要风险原因的简短标题（中文或英文，取决于请求语言）")
+    explanation: str = Field(description="对该风险原因的具体解释说明")
 
 
-class RiskResponse(BaseModel):
-    risk_level: str
-    summary: str
-    confidence: float
-    details: RiskDetails
+class SecurityRiskResponse(BaseModel):
+    risk_level: Literal["high", "medium", "low", "unknown", "高", "中", "低", "未知"] = Field(
+        description=(
+            "总体风险等级。英文可用 high/medium/low/unknown，中文可用 高/中/低/未知。"
+        )
+    )
+    summary: str = Field(description="总体风险结论摘要，1~2 句即可")
+    confidence: float = Field(
+        ge=0,
+        le=1,
+        description="模型对本次风险判断的置信度，取值范围 0~1，越大代表越确定",
+    )
+    top_reasons: List[RiskReason] = Field(
+        default_factory=list,
+        min_length=3,
+        max_length=3,
+        description="最关键的 3 条风险原因及解释，按重要性排序",
+    )
+
+
+class SlippageFactor(BaseModel):
+    factor: str = Field(description="导致滑点的关键因素名称")
+    explanation: str = Field(description="该因素如何影响滑点与执行结果的解释")
+
+
+class SlippageRiskResponse(BaseModel):
+    expected_slippage_pct: float = Field(
+        ge=0,
+        description="预期滑点百分比（数值）。例如 1.35 表示约 1.35% 的预期滑点",
+    )
+    exceed_slippage_probability_label: Literal["high", "medium", "low", "unknown", "高", "中", "低", "未知"] = Field(
+        description=(
+            "超过预期滑点概率的标签化结果。"
+            "英文可用 high/medium/low/unknown，中文可用 高/中/低/未知。"
+        )
+    )
+    summary: str = Field(description="对本次交易滑点风险的总结性结论")
+    key_factors: List[SlippageFactor] = Field(
+        default_factory=list,
+        min_length=2,
+        description="关键影响因素列表，至少 2 条",
+    )
+    market_context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="用于支撑判断的市场上下文数据，例如流动性、价差、订单数量等",
+    )

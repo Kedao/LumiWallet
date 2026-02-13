@@ -20,7 +20,6 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
 - `MODEL_BASE_URL`：OpenAI 兼容服务的 Base URL
 - `MODEL_NAME`：模型名称
 - `MODEL_API_KEY`：API Key
-- `LLM_DISABLED`：设置为 `true` 时不调用 LLM，返回兜底结果
 - `REQUEST_TIMEOUT_S`：LLM 请求超时秒数
 
 **接口**
@@ -28,21 +27,110 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
 - `POST /risk/contract`
 - `POST /risk/slippage`
 
+**返回结构**
+- `POST /risk/phishing` 与 `POST /risk/contract`
+  - 返回 `SecurityRiskResponse`
+  - 字段：
+    - `risk_level`：`high | medium | low | unknown`
+    - `summary`：总体结论
+    - `confidence`：`0~1`
+    - `top_reasons`：固定 3 条主因，每条包含 `reason` 与 `explanation`
+- `POST /risk/slippage`
+  - 返回 `SlippageRiskResponse`
+  - 字段：
+    - `expected_slippage_pct`：预期滑点百分比（数值，`1.2` 代表 `1.2%`）
+    - `exceed_slippage_probability_label`：超过预期滑点的概率标签（`高|中|低|未知` 或 `high|medium|low|unknown`）
+    - `summary`：总体结论
+    - `key_factors`：关键解释因子列表（每条 `factor` + `explanation`）
+    - `market_context`：上下文指标（如 `liquidity`、`spread_bps`、`order_count`）
+
+**返回样例**
+- `POST /risk/phishing` 返回示例
+```json
+{
+  "risk_level": "高",
+  "summary": "该地址存在明显钓鱼风险，建议阻断交易。",
+  "confidence": 0.86,
+  "top_reasons": [
+    {
+      "reason": "命中钓鱼标签",
+      "explanation": "外部情报源标记该地址与钓鱼活动相关。"
+    },
+    {
+      "reason": "账户年龄过短",
+      "explanation": "账户创建时间较近，缺乏可信历史行为。"
+    },
+    {
+      "reason": "失败交易占比偏高",
+      "explanation": "近期失败交易较多，行为模式异常。"
+    }
+  ]
+}
+```
+
+- `POST /risk/contract` 返回示例
+```json
+{
+  "risk_level": "中",
+  "summary": "该合约具备较高管理权限，交互前需谨慎评估。",
+  "confidence": 0.78,
+  "top_reasons": [
+    {
+      "reason": "可升级权限开启",
+      "explanation": "管理员可替换实现合约，逻辑存在变更风险。"
+    },
+    {
+      "reason": "具备暂停权限",
+      "explanation": "项目方可暂停交易或转账，影响可用性。"
+    },
+    {
+      "reason": "代码透明度一般",
+      "explanation": "合约审计信息与公开资料不足，降低可验证性。"
+    }
+  ]
+}
+```
+
+- `POST /risk/slippage` 返回示例
+```json
+{
+  "expected_slippage_pct": 1.42,
+  "exceed_slippage_probability_label": "中",
+  "summary": "当前流动性与价差条件下，存在中等概率出现超预期滑点。",
+  "key_factors": [
+    {
+      "factor": "价差偏宽",
+      "explanation": "订单簿买卖价差较大，成交价格更容易偏离预期。"
+    },
+    {
+      "factor": "池子流动性一般",
+      "explanation": "大额成交会引发更明显价格冲击。"
+    }
+  ],
+  "market_context": {
+    "liquidity": 18500.0,
+    "spread_bps": 96.0,
+    "order_count": 14
+  }
+}
+```
+
 **请求概述**
 - `POST /risk/phishing`
   - 用于钓鱼地址风险分析
-  - 主要输入：`address`，`interaction_type`，`transactions`（最近最多 100 笔），`lifecycle`，`tags`
+  - 主要输入：`address`，`lang`（默认 `zh`），`interaction_type`，`transactions`（最近最多 100 笔），`lifecycle`，`tags`
 - `POST /risk/contract`
   - 用于合约风险分析
-  - 主要输入：`contract_address`，`interaction_type`，`code`，`creator`，`proxy`，`permissions`，`token_flags`，`tags`
+  - 主要输入：`contract_address`，`lang`（默认 `zh`），`interaction_type`，`code`，`creator`，`proxy`，`permissions`，`token_flags`，`tags`
 - `POST /risk/slippage`
   - 用于滑点分析
-  - 主要输入：`pool_address`，`token_in`，`token_out`，`amount_in`，`time_window`，`trade_type`，`orderbook`，`pool`
+  - 主要输入：`pool_address`，`lang`（默认 `zh`），`token_in`，`token_out`，`amount_in`，`time_window`，`trade_type`，`orderbook`，`pool`
 
 **字段说明**
 - `POST /risk/phishing`
   - `address`：目标地址（对方地址）
   - `chain`：链标识，当前固定为 `monad`
+  - `lang`：返回语言标识，支持 `zh` / `en`，默认 `zh`
   - `interaction_type`：交互类型，`transfer` / `approve` / `contract_call`
   - `transactions`：最近交易记录（最多 100 笔）
   - `transactions[].tx_hash`：交易哈希
@@ -71,6 +159,7 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
 - `POST /risk/contract`
   - `contract_address`：合约地址
   - `chain`：链标识，当前固定为 `monad`
+  - `lang`：返回语言标识，支持 `zh` / `en`，默认 `zh`
   - `interaction_type`：交互类型，`approve` / `swap` / `mint` / `stake` / `contract_call`
   - `creator`：合约创建信息
   - `creator.creator_address`：创建者地址
@@ -105,6 +194,7 @@ uvicorn agent.service.main:app --host 0.0.0.0 --port 8000
 - `POST /risk/slippage`
   - `pool_address`：池子地址（如 Uniswap pool）
   - `chain`：链标识，当前固定为 `monad`
+  - `lang`：返回语言标识，支持 `zh` / `en`，默认 `zh`
   - `token_in`：输入代币地址
   - `token_out`：输出代币地址
   - `amount_in`：输入金额（字符串表示）
