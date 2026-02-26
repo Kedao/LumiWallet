@@ -161,18 +161,6 @@ uv run tests/integration_api_test.py
   - `transactions[].contract_address`：交互合约地址（若为合约交互）
   - `transactions[].method_sig`：合约方法签名（4 字节 selector，可选）
   - `transactions[].success`：交易是否成功
-  - `lifecycle`：地址生命周期信息
-  - `lifecycle.first_seen_timestamp`：首次出现时间戳
-  - `lifecycle.last_seen_timestamp`：最近出现时间戳
-  - `lifecycle.active_days`：活跃天数
-  - `lifecycle.account_age_days`：账户年龄（天）
-  - `lifecycle.gas_funder`：初始 Gas 资助地址
-  - `tags`：第三方标签命中
-  - `tags[].source`：标签来源
-  - `tags[].label`：标签名称
-  - `tags[].confidence`：标签置信度
-  - `tags[].url`：标签来源链接
-  - `extra_features`：预留扩展字段
 - `POST /risk/contract`
   - `contract_address`：合约地址
   - `chain`：链标识，当前固定为 `monad`
@@ -212,23 +200,11 @@ uv run tests/integration_api_test.py
   - `pool_address`：池子地址（如 Uniswap pool）
   - `chain`：链标识，当前固定为 `monad`
   - `lang`：返回语言标识，支持 `zh` / `en`，默认 `zh`
-  - `token_in`：输入代币地址
-  - `token_out`：输出代币地址
-  - `amount_in`：输入金额（字符串表示）
+  - `token_pay_amount`：输入金额（字符串表示）
   - `time_window`：统计窗口，默认 `5m`
-  - `trade_type`：`exact_in` / `exact_out`
   - `interaction_type`：交互类型，默认 `swap`
-  - `orderbook`：订单簿信息
-  - `orderbook.bids`：买单档位列表
-  - `orderbook.asks`：卖单档位列表
-  - `orderbook.bids[].price`：买单价格
-  - `orderbook.bids[].amount`：买单数量
-  - `orderbook.asks[].price`：卖单价格
-  - `orderbook.asks[].amount`：卖单数量
-  - `orderbook.spread_bps`：价差（bps，可选）
   - `pool`：池子统计信息
-  - `pool.liquidity`：流动性
-  - `pool.volume_5m`：5 分钟成交量
-  - `pool.volume_1h`：1 小时成交量
   - `pool.price_impact_pct`：价格冲击百分比
-  - `extra_features`：预留扩展字段
+  - `pool.token_pay_amount`: 支付的Token在池子中的总量
+  - `pool.token_get_amount`: 要兑换的Token在池子中的总量
+  - `pool.type`: 交易池子的类型(默认AMM)
