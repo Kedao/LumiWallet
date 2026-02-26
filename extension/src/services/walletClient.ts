@@ -101,11 +101,52 @@ export interface SwapQuote {
   expectedOutputAmount: string
 }
 
+export interface SwapSlippagePoolRiskStats {
+  poolAddress: string
+  priceImpactPct: number | null
+}
+
 export interface LocalActivityInput {
   type: 'transfer' | 'dex'
   amount: string
   hash: string
   to?: string
+}
+
+export interface RecentAddressTransaction {
+  hash: string
+  blockNumber: number
+  timestamp: number
+  from: string
+  to: string | null
+  value: string
+  direction: 'in' | 'out' | 'self'
+  counterparty: string
+  success: boolean | null
+  tokenAddress: string | null
+  tokenDecimals: number | null
+  methodSig: string | null
+  contractAddress: string | null
+  phishingValue: string | null
+}
+
+export interface RecentAddressTransactionSummary {
+  address: string
+  fetchedAt: number
+  requestedLimit: number
+  total: number
+  incomingCount: number
+  outgoingCount: number
+  selfCount: number
+  records: RecentAddressTransaction[]
+}
+
+export interface AddressLifecycleInfo {
+  first_seen_timestamp?: number
+  last_seen_timestamp?: number
+  active_days?: number
+  account_age_days?: number
+  gas_funder?: string
 }
 
 const AUTH_STORAGE_KEY = 'lumi.wallet.auth.v1'
@@ -119,6 +160,9 @@ const PBKDF2_SALT_BYTES = 16
 const AES_GCM_IV_BYTES = 12
 const PRIVATE_KEY_BYTES = 32
 const MAX_ACTIVITY_RECORDS_PER_ACCOUNT = 50
+const RECENT_ADDRESS_TX_LIMIT = 5
+const MONADSCAN_V2_API_BASE_URL = 'https://api.etherscan.io/v2/api'
+const MONADSCAN_API_KEY = String(import.meta.env.VITE_MONADSCAN_API_KEY ?? '').trim()
 const EGOLD_CONTRACT_ADDRESS = getAddress('0xee7977f3854377f6b8bdf6d0b715277834936b24')
 const AMM_CONTRACT_ADDRESS = getAddress('0x64a359881660bc623017a660f2322489c4cdda8b')
 const ERC20_ABI = [
@@ -142,6 +186,87 @@ const provider = new JsonRpcProvider(DEFAULT_EXTENSION_NETWORK.rpcUrls[0])
 const eGoldContract = new Contract(EGOLD_CONTRACT_ADDRESS, ERC20_ABI, provider)
 const ammContract = new Contract(AMM_CONTRACT_ADDRESS, AMM_ABI, provider)
 let sessionSecretHex: string | null = null
+const erc20DecimalsCache = new Map<string, Promise<number | null>>()
+
+const ERC20_TRANSFER_METHOD_ID = '0xa9059cbb'
+const ERC20_APPROVE_METHOD_ID = '0x095ea7b3'
+const ERC20_TRANSFER_FROM_METHOD_ID = '0x23b872dd'
+
+const normalizeOptionalAddress = (value: string): string | null => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+  try {
+    return normalizeAddress(trimmed)
+  } catch {
+    return null
+  }
+}
+
+const getMethodIdFromCallData = (input: string): string | null => {
+  const trimmed = input.trim()
+  if (!isHexString(trimmed) || trimmed.length < 10) {
+    return null
+  }
+  return trimmed.slice(0, 10).toLowerCase()
+}
+
+const parseUint256ParamFromCallData = (input: string, paramIndex: number): bigint | null => {
+  const trimmed = input.trim()
+  if (!isHexString(trimmed) || trimmed.length < 10) {
+    return null
+  }
+  const start = 10 + (paramIndex * 64)
+  const end = start + 64
+  if (trimmed.length < end) {
+    return null
+  }
+  const word = trimmed.slice(start, end)
+  if (!/^[0-9a-fA-F]{64}$/.test(word)) {
+    return null
+  }
+  try {
+    return BigInt(`0x${word}`)
+  } catch {
+    return null
+  }
+}
+
+const getKnownTokenDecimals = (tokenAddress: string): number | null => {
+  if (tokenAddress === EGOLD_CONTRACT_ADDRESS) {
+    return 18
+  }
+  return null
+}
+
+const getErc20TokenDecimals = async (tokenAddress: string): Promise<number | null> => {
+  const known = getKnownTokenDecimals(tokenAddress)
+  if (known !== null) {
+    return known
+  }
+
+  const cached = erc20DecimalsCache.get(tokenAddress)
+  if (cached) {
+    return cached
+  }
+
+  const pending = (async () => {
+    try {
+      const contract = new Contract(tokenAddress, ERC20_ABI, provider)
+      const raw = await contract.decimals()
+      const value = typeof raw === 'bigint' ? Number(raw) : Number(raw)
+      if (!Number.isInteger(value) || value < 0 || value > 255) {
+        return null
+      }
+      return value
+    } catch {
+      return null
+    }
+  })()
+  erc20DecimalsCache.set(tokenAddress, pending)
+  return pending
+}
 
 const canUseChromeStorage = () =>
   typeof chrome !== 'undefined' && Boolean(chrome?.storage?.local)
@@ -1077,15 +1202,263 @@ export const fetchHistory = async (): Promise<TransactionRecord[]> => {
   }
 
   try {
-    const accountAddress = normalizeAddress(getAddress(account.address))
-    const stored = await getStoredActivity()
-    const { nextStored, hasChanged } = await reconcilePendingActivityStatuses(stored, accountAddress)
-    if (hasChanged) {
-      await setStoredActivity(nextStored)
-    }
-    return getActivityByAccount(nextStored, accountAddress)
+    const summary = await fetchRecentAddressTransactionSummary(account.address, { limit: RECENT_ADDRESS_TX_LIMIT })
+    return summary.records.map((item) => ({
+      id: item.hash,
+      type: item.to && normalizeAddress(item.to) === AMM_CONTRACT_ADDRESS ? 'dex' : 'transfer',
+      timestamp: item.timestamp,
+      amount: `${item.value} MON`,
+      status: 'success',
+      to: item.to ?? undefined,
+      hash: item.hash
+    }))
   } catch {
     return []
+  }
+}
+
+export const fetchRecentAddressTransactionSummary = async (
+  address: string,
+  options?: { limit?: number }
+): Promise<RecentAddressTransactionSummary> => {
+  const normalizedAddress = validateAddress(address)
+  const limit = Math.max(1, Math.min(options?.limit ?? RECENT_ADDRESS_TX_LIMIT, 25))
+  if (!MONADSCAN_API_KEY) {
+    throw new Error('Missing VITE_MONADSCAN_API_KEY in .env.')
+  }
+  const query = new URLSearchParams({
+    chainid: String(DEFAULT_EXTENSION_NETWORK.chainIdDecimal),
+    module: 'account',
+    action: 'txlist',
+    address: getAddress(normalizedAddress),
+    page: '1',
+    offset: String(limit),
+    sort: 'desc',
+    apikey: MONADSCAN_API_KEY
+  })
+  const response = await fetch(`${MONADSCAN_V2_API_BASE_URL}?${query.toString()}`)
+  if (!response.ok) {
+    throw new Error('Failed to query Monadscan API.')
+  }
+
+  const payload = await response.json() as unknown
+  if (!isRecord(payload)) {
+    throw new Error('Unexpected Monadscan API response.')
+  }
+
+  const status = typeof payload.status === 'string' ? payload.status : ''
+  const message = typeof payload.message === 'string' ? payload.message : ''
+  const result = payload.result
+  if (Array.isArray(result) && status === '0' && message.toLowerCase().includes('no transactions')) {
+    return {
+      address: normalizedAddress,
+      fetchedAt: Date.now(),
+      requestedLimit: limit,
+      total: 0,
+      incomingCount: 0,
+      outgoingCount: 0,
+      selfCount: 0,
+      records: []
+    }
+  }
+  if (!Array.isArray(result)) {
+    const errorHint = typeof result === 'string' && result.trim() ? result : 'Unexpected Monadscan API response.'
+    throw new Error(errorHint)
+  }
+
+  const records = (await Promise.all(
+    result.map(async (item) => {
+      if (!isRecord(item)) {
+        return null
+      }
+      const hash = typeof item.hash === 'string' ? item.hash : ''
+      const fromRaw = typeof item.from === 'string' ? item.from : ''
+      const toRaw = typeof item.to === 'string' ? item.to : ''
+      const valueRaw = typeof item.value === 'string' ? item.value : ''
+      const timestampRaw = typeof item.timeStamp === 'string' ? item.timeStamp : ''
+      const blockRaw = typeof item.blockNumber === 'string' ? item.blockNumber : ''
+      const inputRaw = typeof item.input === 'string' ? item.input : ''
+      const methodIdRaw = typeof item.methodId === 'string' ? item.methodId : ''
+      const functionNameRaw = typeof item.functionName === 'string' ? item.functionName : ''
+      const txReceiptStatusRaw = typeof item.txreceipt_status === 'string' ? item.txreceipt_status : ''
+      const isErrorRaw = typeof item.isError === 'string' ? item.isError : ''
+      const contractAddressRaw = typeof item.contractAddress === 'string' ? item.contractAddress : ''
+      if (!hash || !fromRaw) {
+        return null
+      }
+
+      let value = '0'
+      try {
+        value = formatEther(BigInt(valueRaw || '0'))
+      } catch {
+        value = '0'
+      }
+
+      const from = normalizeAddress(fromRaw)
+      const to = toRaw ? normalizeAddress(toRaw) : null
+      const input = inputRaw.trim()
+      const methodId = (methodIdRaw.trim() || getMethodIdFromCallData(input) || '').toLowerCase()
+      const functionName = functionNameRaw.trim()
+      const methodSig = functionName || methodId || null
+      const isContractCall = Boolean(input && input !== '0x')
+      const createdContractAddress = normalizeOptionalAddress(contractAddressRaw)
+      const contractAddress = createdContractAddress ?? (isContractCall ? to : null)
+      let success: boolean | null = null
+      if (txReceiptStatusRaw === '1') {
+        success = true
+      } else if (txReceiptStatusRaw === '0') {
+        success = false
+      } else if (isErrorRaw === '0') {
+        success = true
+      } else if (isErrorRaw === '1') {
+        success = false
+      }
+
+      const isTokenMethod =
+        Boolean(to) &&
+        (methodId === ERC20_TRANSFER_METHOD_ID ||
+          methodId === ERC20_APPROVE_METHOD_ID ||
+          methodId === ERC20_TRANSFER_FROM_METHOD_ID)
+      const tokenAddress = isTokenMethod ? to : null
+      let tokenDecimals: number | null = null
+      let phishingValue: string | null = null
+      if (tokenAddress) {
+        tokenDecimals = await getErc20TokenDecimals(tokenAddress)
+        const amountParamIndex = methodId === ERC20_TRANSFER_FROM_METHOD_ID ? 2 : 1
+        const tokenAmountRaw = parseUint256ParamFromCallData(input, amountParamIndex)
+        if (tokenAmountRaw !== null && tokenDecimals !== null) {
+          phishingValue = formatUnits(tokenAmountRaw, tokenDecimals)
+        }
+      }
+
+      const isFromMatch = from === normalizedAddress
+      const isToMatch = to === normalizedAddress
+      const direction = isFromMatch && isToMatch ? 'self' : isFromMatch ? 'out' : 'in'
+      const counterparty =
+        direction === 'out'
+          ? to ?? '(contract creation)'
+          : direction === 'in'
+            ? from
+            : to ?? from
+
+      return {
+        hash,
+        blockNumber: Number(blockRaw || '0'),
+        timestamp: Number(timestampRaw || '0') * 1000,
+        from,
+        to,
+        value,
+        direction,
+        counterparty,
+        success,
+        tokenAddress,
+        tokenDecimals,
+        methodSig,
+        contractAddress,
+        phishingValue
+      } satisfies RecentAddressTransaction
+    })
+  ))
+    .filter((item): item is RecentAddressTransaction => item !== null)
+    .slice(0, limit)
+
+  const incomingCount = records.filter((item) => item.direction === 'in').length
+  const outgoingCount = records.filter((item) => item.direction === 'out').length
+  const selfCount = records.filter((item) => item.direction === 'self').length
+
+  return {
+    address: normalizedAddress,
+    fetchedAt: Date.now(),
+    requestedLimit: limit,
+    total: records.length,
+    incomingCount,
+    outgoingCount,
+    selfCount,
+    records
+  }
+}
+
+const fetchMonadscanTxlistTimestamps = async (
+  address: string,
+  sort: 'asc' | 'desc'
+): Promise<number | null> => {
+  const normalizedAddress = validateAddress(address)
+  if (!MONADSCAN_API_KEY) {
+    throw new Error('Missing VITE_MONADSCAN_API_KEY in .env.')
+  }
+
+  const query = new URLSearchParams({
+    chainid: String(DEFAULT_EXTENSION_NETWORK.chainIdDecimal),
+    module: 'account',
+    action: 'txlist',
+    address: getAddress(normalizedAddress),
+    page: '1',
+    offset: '1',
+    sort,
+    apikey: MONADSCAN_API_KEY
+  })
+  const response = await fetch(`${MONADSCAN_V2_API_BASE_URL}?${query.toString()}`)
+  if (!response.ok) {
+    throw new Error('Failed to query Monadscan API.')
+  }
+
+  const payload = await response.json() as unknown
+  if (!isRecord(payload)) {
+    throw new Error('Unexpected Monadscan API response.')
+  }
+
+  const status = typeof payload.status === 'string' ? payload.status : ''
+  const message = typeof payload.message === 'string' ? payload.message : ''
+  const result = payload.result
+  if (Array.isArray(result) && status === '0' && message.toLowerCase().includes('no transactions')) {
+    return null
+  }
+  if (!Array.isArray(result)) {
+    const errorHint = typeof result === 'string' && result.trim() ? result : 'Unexpected Monadscan API response.'
+    throw new Error(errorHint)
+  }
+
+  const firstItem = result.find((item) => isRecord(item))
+  if (!firstItem || typeof firstItem.timeStamp !== 'string') {
+    return null
+  }
+  const timestamp = Number(firstItem.timeStamp)
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return null
+  }
+  return Math.floor(timestamp)
+}
+
+export const fetchAddressLifecycleInfo = async (
+  address: string
+): Promise<{ address: string; lifecycle: AddressLifecycleInfo }> => {
+  const normalizedAddress = validateAddress(address)
+  const [firstSeen, lastSeen] = await Promise.all([
+    fetchMonadscanTxlistTimestamps(normalizedAddress, 'asc'),
+    fetchMonadscanTxlistTimestamps(normalizedAddress, 'desc')
+  ])
+
+  const nextFirstSeen = firstSeen ?? lastSeen ?? undefined
+  const nextLastSeen = lastSeen ?? firstSeen ?? undefined
+  const lifecycle: AddressLifecycleInfo = {}
+
+  if (typeof nextFirstSeen === 'number') {
+    lifecycle.first_seen_timestamp = nextFirstSeen
+    const nowSeconds = Math.floor(Date.now() / 1000)
+    lifecycle.account_age_days = Math.max(0, Math.floor((nowSeconds - nextFirstSeen) / 86_400))
+  }
+
+  if (typeof nextLastSeen === 'number') {
+    lifecycle.last_seen_timestamp = nextLastSeen
+  }
+
+  if (typeof nextFirstSeen === 'number' && typeof nextLastSeen === 'number') {
+    lifecycle.active_days = Math.max(1, Math.floor((nextLastSeen - nextFirstSeen) / 86_400) + 1)
+  }
+
+  return {
+    address: normalizedAddress,
+    lifecycle
   }
 }
 
@@ -1153,6 +1526,54 @@ export const fetchSwapQuoteByInputAmount = async (
     outputToken: output.outputToken,
     inputAmount: formatUnits(output.inputAmountRaw, output.inputDecimals),
     expectedOutputAmount: formatUnits(output.expectedOutputRaw, output.outputDecimals)
+  }
+}
+
+export const fetchSwapSlippagePoolRiskStatsByInputAmount = async (
+  inputToken: SwapTargetToken,
+  inputAmount: string
+): Promise<SwapSlippagePoolRiskStats> => {
+  const normalizedInput = normalizeSwapTargetToken(inputToken)
+  const output = await getSwapOutputForExactInput(normalizedInput, inputAmount)
+
+  let priceImpactPct: number | null = null
+  try {
+    const reserves = await ammContract.getReserves() as [bigint, bigint]
+    const reserveMONRaw = reserves[0]
+    const reserveEGoldRaw = reserves[1]
+    const reserveInRaw = output.inputToken === 'MON' ? reserveMONRaw : reserveEGoldRaw
+    const reserveOutRaw = output.inputToken === 'MON' ? reserveEGoldRaw : reserveMONRaw
+    if (reserveInRaw > 0n && reserveOutRaw > 0n) {
+      const inputAmountFloat = Number(formatUnits(output.inputAmountRaw, output.inputDecimals))
+      const reserveInFloat = Number(formatUnits(reserveInRaw, output.inputDecimals))
+      const reserveOutFloat = Number(formatUnits(reserveOutRaw, output.outputDecimals))
+      const actualOutputFloat = Number(formatUnits(output.expectedOutputRaw, output.outputDecimals))
+      if (
+        Number.isFinite(inputAmountFloat) &&
+        Number.isFinite(reserveInFloat) &&
+        Number.isFinite(reserveOutFloat) &&
+        Number.isFinite(actualOutputFloat) &&
+        inputAmountFloat > 0 &&
+        reserveInFloat > 0 &&
+        reserveOutFloat > 0 &&
+        actualOutputFloat >= 0
+      ) {
+        const spotOutputFloat = inputAmountFloat * (reserveOutFloat / reserveInFloat)
+        if (spotOutputFloat > 0 && Number.isFinite(spotOutputFloat)) {
+          const rawImpact = ((spotOutputFloat - actualOutputFloat) / spotOutputFloat) * 100
+          if (Number.isFinite(rawImpact)) {
+            priceImpactPct = Math.max(0, Number(rawImpact.toFixed(6)))
+          }
+        }
+      }
+    }
+  } catch {
+    priceImpactPct = null
+  }
+
+  return {
+    poolAddress: AMM_CONTRACT_ADDRESS,
+    priceImpactPct
   }
 }
 

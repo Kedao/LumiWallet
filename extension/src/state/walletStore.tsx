@@ -2,7 +2,6 @@ import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useSt
 import { Balance, TransactionRecord, WalletAccount } from '../types/models'
 import {
   clearWalletSession,
-  fetchHistory,
   getImportedAccountState,
   importAccountWithPrivateKey,
   initializeWalletWithPassword,
@@ -72,8 +71,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   const applyAccountState = async (selectedAddress: string | null, nextAccounts: WalletAccount[]) => {
     setAccounts(nextAccounts)
     setAccount(nextAccounts.find((item) => item.address === selectedAddress) ?? null)
-    const nextHistory = await fetchHistory()
-    setHistory(nextHistory)
+    setHistory([])
   }
 
   const syncAccountState = async () => {
