@@ -1,23 +1,22 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from ..models import SlippageRiskRequest, SlippageRiskResponse
 from .BaseRiskAgent import RiskTaskAgent
 
 SLIPPAGE_SYSTEM_PROMPT_ZH = (
-    "你是加密钱包后端的 DEX 滑点风险分析助手。"
-    "请基于流动性深度、价差、价格冲击和订单簿信息评估滑点。"
-    "请使用中文输出各字段内容。"
-    "其中 exceed_slippage_probability_label 表示“超过预期滑点概率”的标签，取值为 高/中/低/未知。"
+    "你是加密钱包后端的 DEX 滑点分析助手。"
+    "当前仅按 AMM 模型处理输入，并输出简洁结果。"
+    "你必须只返回两个字段：slippage_level（滑点大小的定性等级）和 summary（为什么会发生这种滑点的通俗解释）。"
 )
 
 SLIPPAGE_SYSTEM_PROMPT_EN = (
-    "You are a DEX execution-risk analyst for a crypto wallet backend. "
-    "Estimate slippage risk from liquidity depth, spread, and price impact metrics. "
-    "You receive all request fields already expanded in plain text. "
-    "Output all fields in English. "
-    "Use exceed_slippage_probability_label for probability of exceeding expected slippage: high/medium/low/unknown."
+    "You are a DEX slippage analyst for a crypto wallet backend. "
+    "Use AMM-style calculation assumptions only. "
+    "You must return exactly two fields: slippage_level (qualitative slippage size) and summary "
+    "(a plain-language reason why this slippage happens)."
 )
 
 
@@ -28,55 +27,128 @@ class SlippageRiskAgent(RiskTaskAgent):
     def run(self, req: SlippageRiskRequest) -> SlippageRiskResponse:
         payload = req.model_dump()
         lang = self._normalize_lang(payload.get("lang"))
-        orderbook = payload.get("orderbook") or {}
-        bids = orderbook.get("bids") or []
-        asks = orderbook.get("asks") or []
-        payload["derived_context"] = {
-            "order_count": len(bids) + len(asks),
-            "bid_levels": len(bids),
-            "ask_levels": len(asks),
-            "has_pool_stats": bool(payload.get("pool")),
-            "has_orderbook": bool(orderbook),
-        }
+        payload["derived_context"] = self._build_derived_context(payload)
         data = self.run_payload("slippage_risk", payload, lang=lang)
-        return data if isinstance(data, SlippageRiskResponse) else SlippageRiskResponse.model_validate(data)
+        if isinstance(data, SlippageRiskResponse):
+            return data.model_copy(update={"summary": self._normalize_summary(data.summary, lang)})
+        if isinstance(data, dict):
+            # Compatibility: map old numeric field to qualitative level.
+            if "slippage_level" not in data and "expected_slippage_pct" in data:
+                data["slippage_level"] = self._pct_to_level(data.get("expected_slippage_pct"), lang)
+            data["summary"] = self._normalize_summary(data.get("summary"), lang)
+            return SlippageRiskResponse.model_validate(data)
+        result = SlippageRiskResponse.model_validate(data)
+        return result.model_copy(update={"summary": self._normalize_summary(result.summary, lang)})
 
     def _system_prompt_for_lang(self, lang: str) -> str:
         return SLIPPAGE_SYSTEM_PROMPT_EN if lang == "en" else SLIPPAGE_SYSTEM_PROMPT_ZH
+
+    def _to_decimal(self, value: Any) -> Decimal | None:
+        if value is None:
+            return None
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return None
+
+    def _pct_to_level(self, value: Any, lang: str) -> str:
+        pct = self._to_decimal(value)
+        if pct is None:
+            return "unknown" if lang == "en" else "未知"
+        if pct < 1:
+            return "low" if lang == "en" else "低"
+        if pct <= 3:
+            return "medium" if lang == "en" else "中"
+        return "high" if lang == "en" else "高"
+
+    def _normalize_summary(self, summary: Any, lang: str) -> str:
+        text = str(summary or "").strip().replace("\n", " ")
+        if not text:
+            return (
+                "Insufficient data, so slippage can only be judged conservatively."
+                if lang == "en"
+                else "数据不足，因此只能对滑点做保守判断。"
+            )
+
+        for sep in ("。", "！", "？", ".", "!", "?"):
+            idx = text.find(sep)
+            if idx > 0:
+                text = text[: idx + 1]
+                break
+        return text[:120].strip()
+
+    def _build_derived_context(self, payload_input: dict[str, Any]) -> dict[str, Any]:
+        pool = payload_input.get("pool") or {}
+        trade_in = self._to_decimal(payload_input.get("token_pay_amount"))
+        reserve_in = self._to_decimal(pool.get("token_pay_amount"))
+        reserve_out = self._to_decimal(pool.get("token_get_amount"))
+
+        if (
+            trade_in is None
+            or reserve_in is None
+            or reserve_out is None
+            or trade_in <= 0
+            or reserve_in <= 0
+            or reserve_out <= 0
+        ):
+            return {
+                "has_required_amounts": False,
+                "estimated_slippage_pct": 0.0,
+                "assumption": "insufficient_data",
+            }
+
+        spot_price = reserve_out / reserve_in
+        output_after_trade = reserve_out - (reserve_in * reserve_out / (reserve_in + trade_in))
+        if output_after_trade <= 0:
+            return {
+                "has_required_amounts": False,
+                "estimated_slippage_pct": 0.0,
+                "assumption": "invalid_output",
+            }
+
+        execution_price = output_after_trade / trade_in
+        slippage_pct = max(Decimal("0"), (spot_price - execution_price) / spot_price * Decimal("100"))
+
+        return {
+            "has_required_amounts": True,
+            "assumption": "constant_product_amm",
+            "spot_price": float(spot_price),
+            "execution_price": float(execution_price),
+            "estimated_slippage_pct": float(round(slippage_pct, 6)),
+            "pool_type": pool.get("type") or "AMM",
+            "price_impact_pct": pool.get("price_impact_pct"),
+        }
 
     def _build_user_prompt_en(
         self,
         task: str,
         pool_address: Any,
-        token_in: Any,
-        token_out: Any,
-        amount_in: Any,
-        trade_type: Any,
-        time_window: Any,
-        liquidity: Any,
-        volume_5m: Any,
-        volume_1h: Any,
-        spread_bps: Any,
-        impact_pct: Any,
-        order_count: Any,
-        bid_levels: Any,
-        ask_levels: Any,
+        token_pay_amount: Any,
+        pool_type: Any,
+        pool_token_pay_amount: Any,
+        pool_token_get_amount: Any,
+        price_impact_pct: Any,
+        derived: dict[str, Any],
         flat_block: str,
     ) -> str:
         return (
             f"Task: {task}\n"
             "Trade Context:\n"
-            f"- pool_address={pool_address}, token_in={token_in}, token_out={token_out}\n"
-            f"- amount_in={amount_in}, trade_type={trade_type}, time_window={time_window}\n"
-            "Signal Summary:\n"
-            f"- liquidity={liquidity}, volume_5m={volume_5m}, volume_1h={volume_1h}\n"
-            f"- spread_bps={spread_bps}, price_impact_pct={impact_pct}\n"
-            f"- order_count={order_count}, bid_levels={bid_levels}, ask_levels={ask_levels}\n"
-            "Interpretation Hints:\n"
-            "- Use raw numeric values directly; do not convert numbers into categorical bands.\n"
-            "- As rough guidance, spread_bps > 100 or price_impact_pct > 3 often implies elevated slippage risk.\n"
-            "- Fewer order levels/order_count imply shallower book depth and higher execution uncertainty.\n"
-            "- When market data is missing, keep risk probability conservative and explain uncertainty.\n\n"
+            f"- pool_address={pool_address}\n"
+            f"- token_pay_amount={token_pay_amount}\n"
+            f"- pool_type={pool_type}\n"
+            f"- pool.token_pay_amount={pool_token_pay_amount}\n"
+            f"- pool.token_get_amount={pool_token_get_amount}\n"
+            f"- pool.price_impact_pct={price_impact_pct}\n"
+            "Precomputed AMM Context:\n"
+            f"- derived_context={derived}\n"
+            "Rules:\n"
+            "- Use AMM constant-product reasoning from provided amounts.\n"
+            "- slippage_level must be one of: high | medium | low | unknown.\n"
+            "- summary must be one plain-language sentence explaining why this slippage happens.\n"
+            "- If key inputs are missing/invalid, return slippage_level=unknown and explain insufficient data.\n"
+            "- If pool.type is not AMM, keep AMM assumption and mention it in summary.\n"
+            "- Do not output any extra fields.\n\n"
             "Raw Request Snapshot:\n"
             f"{flat_block if flat_block else '<no_fields>'}"
         )
@@ -85,93 +157,68 @@ class SlippageRiskAgent(RiskTaskAgent):
         self,
         task: str,
         pool_address: Any,
-        token_in: Any,
-        token_out: Any,
-        amount_in: Any,
-        trade_type: Any,
-        time_window: Any,
-        liquidity: Any,
-        volume_5m: Any,
-        volume_1h: Any,
-        spread_bps: Any,
-        impact_pct: Any,
-        order_count: Any,
-        bid_levels: Any,
-        ask_levels: Any,
+        token_pay_amount: Any,
+        pool_type: Any,
+        pool_token_pay_amount: Any,
+        pool_token_get_amount: Any,
+        price_impact_pct: Any,
+        derived: dict[str, Any],
         flat_block: str,
     ) -> str:
         return (
             f"任务: {task}\n"
             "交易上下文:\n"
-            f"- pool_address={pool_address}, token_in={token_in}, token_out={token_out}\n"
-            f"- amount_in={amount_in}, trade_type={trade_type}, time_window={time_window}\n"
-            "信号汇总:\n"
-            f"- liquidity={liquidity}, volume_5m={volume_5m}, volume_1h={volume_1h}\n"
-            f"- spread_bps={spread_bps}, price_impact_pct={impact_pct}\n"
-            f"- order_count={order_count}, bid_levels={bid_levels}, ask_levels={ask_levels}\n"
-            "解释提示:\n"
-            "- 直接使用原始数值，不要把数值强行离散为等级标签。\n"
-            "- 经验上 spread_bps > 100 或 price_impact_pct > 3 往往意味着更高滑点风险。\n"
-            "- 订单档位少、order_count 偏低通常代表深度不足和执行不确定性更高。\n"
-            "- 当市场数据缺失时，应保守估计概率并明确说明不确定性。\n\n"
+            f"- pool_address={pool_address}\n"
+            f"- token_pay_amount={token_pay_amount}\n"
+            f"- pool_type={pool_type}\n"
+            f"- pool.token_pay_amount={pool_token_pay_amount}\n"
+            f"- pool.token_get_amount={pool_token_get_amount}\n"
+            f"- pool.price_impact_pct={price_impact_pct}\n"
+            "预计算 AMM 上下文:\n"
+            f"- derived_context={derived}\n"
+            "规则:\n"
+            "- 基于给定数量按 AMM 常乘积思路估算滑点。\n"
+            "- slippage_level 必须是定性等级：高/中/低/未知 或 high/medium/low/unknown。\n"
+            "- summary 必须是一句通俗解释“为什么会发生这种滑点”。\n"
+            "- 关键输入缺失或无效时，返回 slippage_level=未知（或 unknown），并说明数据不足。\n"
+            "- 若 pool.type 不是 AMM，仍按 AMM 假设计算并在 summary 中说明。\n"
+            "- 不要输出额外字段。\n\n"
             "原始请求快照:\n"
             f"{flat_block if flat_block else '<no_fields>'}"
         )
 
     def _build_user_prompt(self, task: str, payload_input: dict[str, Any], lang: str = "zh") -> str:
         pool = payload_input.get("pool") or {}
-        orderbook = payload_input.get("orderbook") or {}
         derived = payload_input.get("derived_context") or {}
 
         pool_address = payload_input.get("pool_address")
-        token_in = payload_input.get("token_in")
-        token_out = payload_input.get("token_out")
-        amount_in = payload_input.get("amount_in")
-        time_window = payload_input.get("time_window")
-        trade_type = payload_input.get("trade_type")
-
-        liquidity = pool.get("liquidity")
-        volume_5m = pool.get("volume_5m")
-        volume_1h = pool.get("volume_1h")
-        spread_bps = orderbook.get("spread_bps")
-        impact_pct = pool.get("price_impact_pct")
-        order_count = derived.get("order_count")
+        token_pay_amount = payload_input.get("token_pay_amount")
+        pool_type = pool.get("type") or "AMM"
+        pool_token_pay_amount = pool.get("token_pay_amount")
+        pool_token_get_amount = pool.get("token_get_amount")
+        price_impact_pct = pool.get("price_impact_pct")
 
         flat_block = "\n".join(self._flatten_fields(payload_input))
         if lang == "en":
             return self._build_user_prompt_en(
                 task,
                 pool_address,
-                token_in,
-                token_out,
-                amount_in,
-                trade_type,
-                time_window,
-                liquidity,
-                volume_5m,
-                volume_1h,
-                spread_bps,
-                impact_pct,
-                order_count,
-                derived.get("bid_levels"),
-                derived.get("ask_levels"),
+                token_pay_amount,
+                pool_type,
+                pool_token_pay_amount,
+                pool_token_get_amount,
+                price_impact_pct,
+                derived,
                 flat_block,
             )
         return self._build_user_prompt_zh(
             task,
             pool_address,
-            token_in,
-            token_out,
-            amount_in,
-            trade_type,
-            time_window,
-            liquidity,
-            volume_5m,
-            volume_1h,
-            spread_bps,
-            impact_pct,
-            order_count,
-            derived.get("bid_levels"),
-            derived.get("ask_levels"),
+            token_pay_amount,
+            pool_type,
+            pool_token_pay_amount,
+            pool_token_get_amount,
+            price_impact_pct,
+            derived,
             flat_block,
         )

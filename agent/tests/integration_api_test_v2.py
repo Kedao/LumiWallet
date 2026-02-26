@@ -3,7 +3,7 @@
 Run after starting API server, for example:
   cd agent && uv run service/main.py
 Then in another shell:
-  cd agent && python tests/integration_api_test.py
+  cd agent && python tests/integration_api_test_v2.py
 """
 
 import argparse
@@ -57,21 +57,19 @@ def assert_phishing_response_v2(
         "confidence",
         "most_similar_address",
         "most_similar_similarity",
-        "most_similar_transactions",
-        "similarity_method",
     ]
     for key in required:
         if key not in data:
             raise AssertionError(f"{path} missing field: {key}")
     if not isinstance(data["most_similar_similarity"], (int, float)):
         raise AssertionError(f"{path} most_similar_similarity should be numeric")
-    if not isinstance(data["most_similar_transactions"], list):
-        raise AssertionError(f"{path} most_similar_transactions should be a list")
+    if data["most_similar_similarity"] < 0 or data["most_similar_similarity"] > 1:
+        raise AssertionError(f"{path} most_similar_similarity should be in [0, 1]")
     if expect_empty:
         if data["most_similar_address"] is not None:
             raise AssertionError(f"{path} most_similar_address should be null when no transactions")
-        if data["most_similar_transactions"] != []:
-            raise AssertionError(f"{path} most_similar_transactions should be empty when no transactions")
+        if data["most_similar_similarity"] != 0:
+            raise AssertionError(f"{path} most_similar_similarity should be 0 when no transactions")
     else:
         if not data["most_similar_address"]:
             raise AssertionError(f"{path} most_similar_address should not be empty")
@@ -81,7 +79,7 @@ def assert_phishing_response_v2(
         raise AssertionError(f"{path} most_similar_similarity should be <= {max_similarity}")
 
 
-def assert_slippage_response(data: dict[str, Any], path: str) -> None:
+def assert_slippage_response_v2(data: dict[str, Any], path: str) -> None:
     for key in ("slippage_level", "summary"):
         if key not in data:
             raise AssertionError(f"{path} missing field: {key}")
@@ -90,6 +88,12 @@ def assert_slippage_response(data: dict[str, Any], path: str) -> None:
         raise AssertionError(f"{path} slippage_level should be one of {sorted(allowed)}")
     if not isinstance(data["summary"], str) or not data["summary"].strip():
         raise AssertionError(f"{path} summary should be non-empty string")
+    summary = data["summary"].strip()
+    if len(summary) > 120:
+        raise AssertionError(f"{path} summary should be concise (<=120 chars)")
+    sentence_terminators = [ch for ch in summary if ch in ("。", "！", "？", ".", "!", "?")]
+    if len(sentence_terminators) > 1:
+        raise AssertionError(f"{path} summary should be a single plain-language sentence")
 
 
 def build_phishing_payload_high_similarity() -> dict[str, Any]:
@@ -207,7 +211,7 @@ def build_slippage_payload() -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Integration test for LumiWallet risk API endpoints.")
+    parser = argparse.ArgumentParser(description="Integration test v2 for LumiWallet risk API endpoints.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Risk service base URL")
     parser.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout seconds")
     args = parser.parse_args()
@@ -218,12 +222,12 @@ def main() -> int:
         (
             "/risk/phishing",
             build_phishing_payload_high_similarity(),
-            lambda data, path: assert_phishing_response_v2(data, path, min_similarity=0.55),
+            lambda data, path: assert_phishing_response_v2(data, path, min_similarity=0.7),
         ),
         (
             "/risk/phishing",
             build_phishing_payload_low_similarity(),
-            lambda data, path: assert_phishing_response_v2(data, path, max_similarity=0.5),
+            lambda data, path: assert_phishing_response_v2(data, path, max_similarity=0.9),
         ),
         (
             "/risk/phishing",
@@ -231,7 +235,7 @@ def main() -> int:
             lambda data, path: assert_phishing_response_v2(data, path, expect_empty=True),
         ),
         ("/risk/contract", build_contract_payload(), assert_security_response),
-        ("/risk/slippage", build_slippage_payload(), assert_slippage_response),
+        ("/risk/slippage", build_slippage_payload(), assert_slippage_response_v2),
     ]
 
     for path, payload, validator in cases:
