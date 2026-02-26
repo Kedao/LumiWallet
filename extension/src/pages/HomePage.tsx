@@ -66,13 +66,9 @@ const HomePage = () => {
     }
 
     void loadHistory()
-    const timer = window.setInterval(() => {
-      void loadHistory()
-    }, 15_000)
 
     return () => {
       isCancelled = true
-      window.clearInterval(timer)
     }
   }, [account, setHistory])
 

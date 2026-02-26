@@ -152,6 +152,10 @@ export interface SlippageRiskResponse {
   market_context: Record<string, unknown>
 }
 
+export type PhishingRiskInput = Omit<PhishingRiskRequest, 'lang'>
+export type ContractRiskInput = Omit<ContractRiskRequest, 'lang'>
+export type SlippageRiskInput = Omit<SlippageRiskRequest, 'lang'>
+
 interface AgentApiErrorPayload {
   detail?: string | { msg?: string } | Array<{ msg?: string }>
 }
@@ -208,11 +212,20 @@ const postJson = async <TRequest, TResponse>(path: string, payload: TRequest): P
   return (await response.json()) as TResponse
 }
 
-export const analyzePhishingRisk = (payload: PhishingRiskRequest) =>
-  postJson<PhishingRiskRequest, SecurityRiskResponse>('/risk/phishing', payload)
+export const analyzePhishingRisk = (payload: PhishingRiskInput) =>
+  postJson<PhishingRiskRequest, SecurityRiskResponse>(
+    '/risk/phishing',
+    payload
+  )
 
-export const analyzeContractRisk = (payload: ContractRiskRequest) =>
-  postJson<ContractRiskRequest, SecurityRiskResponse>('/risk/contract', payload)
+export const analyzeContractRisk = (payload: ContractRiskInput) =>
+  postJson<ContractRiskRequest, SecurityRiskResponse>(
+    '/risk/contract',
+    payload
+  )
 
-export const analyzeSlippageRisk = (payload: SlippageRiskRequest) =>
-  postJson<SlippageRiskRequest, SlippageRiskResponse>('/risk/slippage', payload)
+export const analyzeSlippageRisk = (payload: SlippageRiskInput) =>
+  postJson<SlippageRiskRequest, SlippageRiskResponse>(
+    '/risk/slippage',
+    payload
+  )

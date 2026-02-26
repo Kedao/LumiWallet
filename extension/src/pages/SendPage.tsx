@@ -3,12 +3,12 @@ import { parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
 import {
+  fetchAddressLifecycleInfo,
   fetchBalance,
   fetchRecentAddressTransactionSummary,
-  RecentAddressTransactionSummary,
-  recordLocalActivity,
   sendTokenTransfer
 } from '../services/walletClient'
+import { analyzePhishingRisk, SecurityRiskResponse } from '../services/agentClient'
 import { useWallet } from '../state/walletStore'
 
 const tokenOptions = ['MON', 'eGold'] as const
@@ -40,27 +40,45 @@ const formatDisplayAmount = (amount: string): string => {
   })
 }
 
-const formatSummaryTime = (timestamp: number): string =>
-  new Date(timestamp).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+const getRiskAwareButtonBackground = (risk: SecurityRiskResponse | null): string | null => {
+  if (!risk) {
+    return null
+  }
 
-const formatDirectionLabel = (direction: 'in' | 'out' | 'self'): string => {
-  if (direction === 'in') {
-    return 'Incoming'
+  const level = risk.risk_level
+  if (level === 'high' || level === '高') {
+    return '#d94b4b'
   }
-  if (direction === 'out') {
-    return 'Outgoing'
+  if (level === 'medium' || level === '中') {
+    return '#d38a00'
   }
-  return 'Self'
+  if (level === 'low' || level === '低') {
+    return '#2f9d69'
+  }
+  return '#66758a'
+}
+
+const getNormalizedRiskLevel = (
+  risk: SecurityRiskResponse | null
+): 'high' | 'medium' | 'low' | 'unknown' | null => {
+  if (!risk) {
+    return null
+  }
+  const level = risk.risk_level
+  if (level === 'high' || level === '高') {
+    return 'high'
+  }
+  if (level === 'medium' || level === '中') {
+    return 'medium'
+  }
+  if (level === 'low' || level === '低') {
+    return 'low'
+  }
+  return 'unknown'
 }
 
 const SendPage = () => {
-  const { account, balance, setBalance, setHistory } = useWallet()
+  const { account, balance, setBalance } = useWallet()
   const [token, setToken] = useState<TokenOption>('MON')
   const [toAddress, setToAddress] = useState('')
   const [amount, setAmount] = useState('')
@@ -70,7 +88,8 @@ const SendPage = () => {
   const [isReviewingAddress, setIsReviewingAddress] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [reviewedAddress, setReviewedAddress] = useState('')
-  const [recentTxSummary, setRecentTxSummary] = useState<RecentAddressTransactionSummary | null>(null)
+  const [phishingRisk, setPhishingRisk] = useState<SecurityRiskResponse | null>(null)
+  const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0)
 
   useEffect(() => {
     if (!account) {
@@ -97,6 +116,20 @@ const SendPage = () => {
       isCancelled = true
     }
   }, [account, setBalance])
+
+  useEffect(() => {
+    if (sendCooldownSeconds <= 0) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setSendCooldownSeconds((current) => (current > 0 ? current - 1 : 0))
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [sendCooldownSeconds])
 
   const selectedAsset = useMemo(() => {
     const assets = balance?.assets ?? []
@@ -135,14 +168,26 @@ const SendPage = () => {
   const isAmountInvalid = amount.trim().length > 0 && parsedAmount === null
   const normalizedToAddress = toAddress.trim().toLowerCase()
   const hasReviewedCurrentAddress = reviewedAddress.length > 0 && reviewedAddress === normalizedToAddress
+  const riskAwareButtonBackground = getRiskAwareButtonBackground(phishingRisk)
+  const normalizedRiskLevel = getNormalizedRiskLevel(phishingRisk)
+  const isRiskCooldownActive =
+    hasReviewedCurrentAddress &&
+    sendCooldownSeconds > 0 &&
+    (normalizedRiskLevel === 'high' || normalizedRiskLevel === 'medium')
   const isSubmitDisabled =
-    isReviewingAddress || isSending || toAddress.trim().length === 0 || parsedAmount === null || isInsufficientBalance
+    isReviewingAddress ||
+    isSending ||
+    isRiskCooldownActive ||
+    toAddress.trim().length === 0 ||
+    parsedAmount === null ||
+    isInsufficientBalance
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
     setHistoryWarning('')
     setTxHash('')
+    const senderAddress = account?.address?.trim() ?? ''
 
     if (parsedAmount === null) {
       setError('Please enter a valid amount.')
@@ -154,12 +199,52 @@ const SendPage = () => {
     }
 
     if (!hasReviewedCurrentAddress) {
+      if (!senderAddress) {
+        setError('No active sender account.')
+        return
+      }
+      setPhishingRisk(null)
+      setSendCooldownSeconds(0)
       setIsReviewingAddress(true)
       try {
-        const summary = await fetchRecentAddressTransactionSummary(toAddress.trim())
-        setRecentTxSummary(summary)
-        setReviewedAddress(summary.address)
+        const [senderSummary, receiverLifecycle] = await Promise.all([
+          fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 }),
+          fetchAddressLifecycleInfo(toAddress.trim())
+        ])
+        try {
+          const risk = await analyzePhishingRisk({
+            address: receiverLifecycle.address,
+            chain: 'monad',
+            interaction_type: 'transfer',
+            transactions: senderSummary.records.map((item) => ({
+              tx_hash: item.hash,
+              timestamp: Math.floor(item.timestamp / 1000),
+              from_address: item.from,
+              to_address: item.to,
+              value: item.phishingValue ?? item.value,
+              token_address: item.tokenAddress ?? null,
+              token_decimals: item.tokenDecimals ?? null,
+              tx_type: item.direction,
+              contract_address: item.contractAddress ?? null,
+              method_sig: item.methodSig ?? null,
+              success: item.success ?? null
+            })),
+            lifecycle: receiverLifecycle.lifecycle
+          })
+          setPhishingRisk(risk)
+          const riskLevel = getNormalizedRiskLevel(risk)
+          setSendCooldownSeconds(riskLevel === 'high' || riskLevel === 'medium' ? 3 : 0)
+          console.info('Phishing risk review result', risk)
+        } catch (riskError) {
+          setPhishingRisk(null)
+          setSendCooldownSeconds(0)
+          console.warn('Failed to analyze phishing risk', riskError)
+          setHistoryWarning('Address activity reviewed, but phishing risk analysis request failed.')
+        }
+        setReviewedAddress(normalizedToAddress)
       } catch (reviewError) {
+        setPhishingRisk(null)
+        setSendCooldownSeconds(0)
         if (reviewError instanceof Error) {
           setError(reviewError.message)
         } else {
@@ -177,20 +262,8 @@ const SendPage = () => {
       setTxHash(hash)
       setAmount('')
       setReviewedAddress('')
-      setRecentTxSummary(null)
-
-      try {
-        const nextHistory = await recordLocalActivity({
-          type: 'transfer',
-          amount: `${amount.trim()} ${token}`,
-          hash,
-          to: toAddress.trim()
-        })
-        setHistory(nextHistory)
-      } catch (activityError) {
-        console.warn('Failed to record local send activity', activityError)
-        setHistoryWarning('Transaction sent, but failed to save local activity.')
-      }
+      setPhishingRisk(null)
+      setSendCooldownSeconds(0)
 
       try {
         const nextBalance = await fetchBalance()
@@ -232,6 +305,8 @@ const SendPage = () => {
               setToken(event.target.value as TokenOption)
               setError('')
               setTxHash('')
+              setPhishingRisk(null)
+              setSendCooldownSeconds(0)
             }}
             style={{
               width: '100%',
@@ -260,7 +335,8 @@ const SendPage = () => {
               setError('')
               setTxHash('')
               setReviewedAddress('')
-              setRecentTxSummary(null)
+              setPhishingRisk(null)
+              setSendCooldownSeconds(0)
             }}
             placeholder="0x..."
             style={{
@@ -378,76 +454,7 @@ const SendPage = () => {
             </div>
           </div>
         ) : null}
-        {recentTxSummary ? (
-          <div
-            style={{
-              fontSize: 12,
-              color: '#1d4f7a',
-              background: '#ecf5ff',
-              border: '1px solid #b8d5f5',
-              padding: '10px 12px',
-              borderRadius: 10,
-              display: 'grid',
-              gap: 8,
-              minWidth: 0
-            }}
-          >
-            <div style={{ fontWeight: 700 }}>Recent On-chain Activity</div>
-            <div>
-              Address checked:
-              <div style={{ marginTop: 2 }}>
-                <HashText value={recentTxSummary.address} mode="wrap" fontSize={11} color="#1d4f7a" />
-              </div>
-            </div>
-            <div>
-              Monadscan returned {recentTxSummary.total} recent transaction
-              {recentTxSummary.total === 1 ? '' : 's'} (in: {recentTxSummary.incomingCount}, out:{' '}
-              {recentTxSummary.outgoingCount}, self: {recentTxSummary.selfCount}, limit:{' '}
-              {recentTxSummary.requestedLimit}).
-            </div>
-            {recentTxSummary.records.length === 0 ? (
-              <div>No recent activity found for this address from Monadscan.</div>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {recentTxSummary.records.map((item) => (
-                  <div
-                    key={item.hash}
-                    style={{
-                      borderRadius: 8,
-                      border: '1px solid #c6def7',
-                      padding: '8px 10px',
-                      background: '#f6fbff',
-                      display: 'grid',
-                      gap: 4,
-                      minWidth: 0
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontWeight: 600 }}>{formatDirectionLabel(item.direction)}</span>
-                      <span>{formatDisplayAmount(item.value)} MON</span>
-                    </div>
-                    <div style={{ color: '#386180' }}>{formatSummaryTime(item.timestamp)}</div>
-                    <div>
-                      Counterparty:
-                      <div style={{ marginTop: 2 }}>
-                        <HashText value={item.counterparty} mode="wrap" fontSize={11} color="#386180" />
-                      </div>
-                    </div>
-                    <div>
-                      Tx:
-                      <div style={{ marginTop: 2 }}>
-                        <HashText value={item.hash} mode="wrap" fontSize={11} color="#386180" />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {hasReviewedCurrentAddress ? <div>Address review completed. Click the button again to send.</div> : null}
-          </div>
-        ) : null}
-
-        <RiskPanel />
+        <RiskPanel phishingRisk={phishingRisk} />
 
         <button
           type="submit"
@@ -456,7 +463,7 @@ const SendPage = () => {
             padding: '10px 12px',
             borderRadius: 12,
             border: 'none',
-            background: 'var(--accent)',
+            background: riskAwareButtonBackground ?? 'var(--accent)',
             color: '#fff',
             fontWeight: 600,
             cursor: isSubmitDisabled ? 'default' : 'pointer',
@@ -468,7 +475,9 @@ const SendPage = () => {
             : isSending
               ? 'Sending...'
               : hasReviewedCurrentAddress
-                ? 'Send Now'
+                ? isRiskCooldownActive
+                  ? `Send Now (${sendCooldownSeconds}s)`
+                  : 'Send Now'
                 : 'Review Address Activity'}
         </button>
       </form>
