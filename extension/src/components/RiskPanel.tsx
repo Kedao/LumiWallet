@@ -1,10 +1,13 @@
-import { SecurityRiskResponse } from '../services/agentClient'
+import { SecurityRiskResponse, SlippageRiskResponse } from '../services/agentClient'
 
 interface RiskPanelProps {
   phishingRisk?: SecurityRiskResponse | null
+  slippageRisk?: SlippageRiskResponse | null
 }
 
-const normalizeRiskLevel = (value: SecurityRiskResponse['risk_level']): 'high' | 'medium' | 'low' | 'unknown' => {
+const normalizeRiskLevel = (
+  value: SecurityRiskResponse['risk_level'] | SlippageRiskResponse['exceed_slippage_probability_label']
+): 'high' | 'medium' | 'low' | 'unknown' => {
   if (value === 'high' || value === '高') {
     return 'high'
   }
@@ -17,12 +20,15 @@ const normalizeRiskLevel = (value: SecurityRiskResponse['risk_level']): 'high' |
   return 'unknown'
 }
 
-const RiskPanel = ({ phishingRisk = null }: RiskPanelProps) => {
-  if (!phishingRisk) {
+const RiskPanel = ({ phishingRisk = null, slippageRisk = null }: RiskPanelProps) => {
+  if (!phishingRisk && !slippageRisk) {
     return null
   }
 
-  const normalizedLevel = normalizeRiskLevel(phishingRisk.risk_level)
+  const title = phishingRisk ? 'Phishing Risk' : 'Slippage Risk'
+  const riskLabel = phishingRisk ? phishingRisk.risk_level : slippageRisk!.exceed_slippage_probability_label
+  const summary = phishingRisk ? phishingRisk.summary : slippageRisk!.summary
+  const normalizedLevel = normalizeRiskLevel(riskLabel)
   const palette =
     normalizedLevel === 'high'
       ? { background: '#fdeeee', border: '#f0c5c5', text: '#8b2b2b', badgeBg: '#d94b4b' }
@@ -44,7 +50,7 @@ const RiskPanel = ({ phishingRisk = null }: RiskPanelProps) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: palette.text }}>Phishing Risk</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: palette.text }}>{title}</div>
         <span
           style={{
             fontSize: 11,
@@ -55,11 +61,11 @@ const RiskPanel = ({ phishingRisk = null }: RiskPanelProps) => {
             padding: '2px 8px'
           }}
         >
-          {String(phishingRisk.risk_level).toUpperCase()}
+          {String(riskLabel).toUpperCase()}
         </span>
       </div>
       <p style={{ margin: 0, fontSize: 12, color: palette.text }}>
-        {phishingRisk.summary || 'No summary returned by the risk service.'}
+        {summary || 'No summary returned by the risk service.'}
       </p>
     </section>
   )

@@ -101,6 +101,11 @@ export interface SwapQuote {
   expectedOutputAmount: string
 }
 
+export interface SwapSlippagePoolRiskStats {
+  poolAddress: string
+  priceImpactPct: number | null
+}
+
 export interface LocalActivityInput {
   type: 'transfer' | 'dex'
   amount: string
@@ -1521,6 +1526,54 @@ export const fetchSwapQuoteByInputAmount = async (
     outputToken: output.outputToken,
     inputAmount: formatUnits(output.inputAmountRaw, output.inputDecimals),
     expectedOutputAmount: formatUnits(output.expectedOutputRaw, output.outputDecimals)
+  }
+}
+
+export const fetchSwapSlippagePoolRiskStatsByInputAmount = async (
+  inputToken: SwapTargetToken,
+  inputAmount: string
+): Promise<SwapSlippagePoolRiskStats> => {
+  const normalizedInput = normalizeSwapTargetToken(inputToken)
+  const output = await getSwapOutputForExactInput(normalizedInput, inputAmount)
+
+  let priceImpactPct: number | null = null
+  try {
+    const reserves = await ammContract.getReserves() as [bigint, bigint]
+    const reserveMONRaw = reserves[0]
+    const reserveEGoldRaw = reserves[1]
+    const reserveInRaw = output.inputToken === 'MON' ? reserveMONRaw : reserveEGoldRaw
+    const reserveOutRaw = output.inputToken === 'MON' ? reserveEGoldRaw : reserveMONRaw
+    if (reserveInRaw > 0n && reserveOutRaw > 0n) {
+      const inputAmountFloat = Number(formatUnits(output.inputAmountRaw, output.inputDecimals))
+      const reserveInFloat = Number(formatUnits(reserveInRaw, output.inputDecimals))
+      const reserveOutFloat = Number(formatUnits(reserveOutRaw, output.outputDecimals))
+      const actualOutputFloat = Number(formatUnits(output.expectedOutputRaw, output.outputDecimals))
+      if (
+        Number.isFinite(inputAmountFloat) &&
+        Number.isFinite(reserveInFloat) &&
+        Number.isFinite(reserveOutFloat) &&
+        Number.isFinite(actualOutputFloat) &&
+        inputAmountFloat > 0 &&
+        reserveInFloat > 0 &&
+        reserveOutFloat > 0 &&
+        actualOutputFloat >= 0
+      ) {
+        const spotOutputFloat = inputAmountFloat * (reserveOutFloat / reserveInFloat)
+        if (spotOutputFloat > 0 && Number.isFinite(spotOutputFloat)) {
+          const rawImpact = ((spotOutputFloat - actualOutputFloat) / spotOutputFloat) * 100
+          if (Number.isFinite(rawImpact)) {
+            priceImpactPct = Math.max(0, Number(rawImpact.toFixed(6)))
+          }
+        }
+      }
+    }
+  } catch {
+    priceImpactPct = null
+  }
+
+  return {
+    poolAddress: AMM_CONTRACT_ADDRESS,
+    priceImpactPct
   }
 }
 

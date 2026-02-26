@@ -4,11 +4,13 @@ import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
 import {
   fetchBalance,
+  fetchSwapSlippagePoolRiskStatsByInputAmount,
   fetchSwapQuoteByInputAmount,
   SwapQuote,
   SwapTargetToken,
   swapByInputAmount
 } from '../services/walletClient'
+import { analyzeSlippageRisk, SlippageRiskResponse } from '../services/agentClient'
 import { useWallet } from '../state/walletStore'
 
 const receiveTokenOptions: SwapTargetToken[] = ['MON', 'eGold']
@@ -42,6 +44,38 @@ const formatDisplayAmount = (amount: string): string => {
 const getPayTokenByReceiveToken = (receiveToken: SwapTargetToken): SwapTargetToken =>
   receiveToken === 'MON' ? 'eGold' : 'MON'
 
+const normalizeRiskLabel = (
+  value: SlippageRiskResponse['exceed_slippage_probability_label']
+): 'high' | 'medium' | 'low' | 'unknown' => {
+  if (value === 'high' || value === '高') {
+    return 'high'
+  }
+  if (value === 'medium' || value === '中') {
+    return 'medium'
+  }
+  if (value === 'low' || value === '低') {
+    return 'low'
+  }
+  return 'unknown'
+}
+
+const getSlippageButtonBackground = (risk: SlippageRiskResponse | null): string | null => {
+  if (!risk) {
+    return null
+  }
+  const normalized = normalizeRiskLabel(risk.exceed_slippage_probability_label)
+  if (normalized === 'high') {
+    return '#d94b4b'
+  }
+  if (normalized === 'medium') {
+    return '#d38a00'
+  }
+  if (normalized === 'low') {
+    return '#2f9d69'
+  }
+  return '#66758a'
+}
+
 const SwapPage = () => {
   const { account, balance, setBalance } = useWallet()
   const [receiveToken, setReceiveToken] = useState<SwapTargetToken>('eGold')
@@ -49,10 +83,16 @@ const SwapPage = () => {
   const [quote, setQuote] = useState<SwapQuote | null>(null)
   const [quoteError, setQuoteError] = useState('')
   const [error, setError] = useState('')
+  const [slippageRiskWarning, setSlippageRiskWarning] = useState('')
   const [txHash, setTxHash] = useState('')
   const [isQuoting, setIsQuoting] = useState(false)
+  const [isReviewingSlippageRisk, setIsReviewingSlippageRisk] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [slippageRisk, setSlippageRisk] = useState<SlippageRiskResponse | null>(null)
+  const [reviewedQuoteKey, setReviewedQuoteKey] = useState('')
+  const [swapCooldownSeconds, setSwapCooldownSeconds] = useState(0)
   const quoteRequestIdRef = useRef(0)
+  const riskReviewRequestIdRef = useRef(0)
   const payToken = getPayTokenByReceiveToken(receiveToken)
 
   useEffect(() => {
@@ -84,6 +124,11 @@ const SwapPage = () => {
   useEffect(() => {
     setQuote(null)
     setQuoteError('')
+    setSlippageRisk(null)
+    setSlippageRiskWarning('')
+    setReviewedQuoteKey('')
+    setSwapCooldownSeconds(0)
+    riskReviewRequestIdRef.current += 1
     quoteRequestIdRef.current += 1
     const requestId = quoteRequestIdRef.current
 
@@ -120,6 +165,20 @@ const SwapPage = () => {
     void loadQuote()
   }, [payToken, payAmount])
 
+  useEffect(() => {
+    if (swapCooldownSeconds <= 0) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setSwapCooldownSeconds((current) => (current > 0 ? current - 1 : 0))
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [swapCooldownSeconds])
+
   const payAsset = useMemo(() => {
     const assets = balance?.assets ?? zeroBalanceAssets.assets
     return assets.find((item) => item.symbol.toUpperCase() === payToken.toUpperCase()) ?? null
@@ -153,7 +212,15 @@ const SwapPage = () => {
 
   const isAmountInvalid = payAmount.trim().length > 0 && parsedPayAmount === null
   const isInsufficientBalance = parsedPayAmount !== null && parsedPayAmount > parsedPayBalance
-  const canSubmit =
+  const currentQuoteKey = quote
+    ? `${quote.inputToken}:${quote.outputToken}:${quote.inputAmount}:${quote.expectedOutputAmount}`
+    : ''
+  const hasReviewedCurrentQuote = currentQuoteKey.length > 0 && reviewedQuoteKey === currentQuoteKey
+  const slippageRiskLevel = slippageRisk ? normalizeRiskLabel(slippageRisk.exceed_slippage_probability_label) : null
+  const isSwapCooldownActive =
+    hasReviewedCurrentQuote && swapCooldownSeconds > 0 && (slippageRiskLevel === 'high' || slippageRiskLevel === 'medium')
+  const swapButtonBackground = getSlippageButtonBackground(slippageRisk)
+  const canSubmitBase =
     Boolean(quote) &&
     payAmount.trim().length > 0 &&
     !isAmountInvalid &&
@@ -162,10 +229,12 @@ const SwapPage = () => {
     !isInsufficientBalance &&
     !isSubmitting &&
     expectedReceiveToken === receiveToken
+  const canSubmit = canSubmitBase && !isReviewingSlippageRisk && !isSwapCooldownActive
 
   const handleSwap = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
+    setSlippageRiskWarning('')
     setTxHash('')
 
     if (parsedPayAmount === null) {
@@ -185,12 +254,64 @@ const SwapPage = () => {
       return
     }
 
+    if (!hasReviewedCurrentQuote) {
+      const reviewRequestId = ++riskReviewRequestIdRef.current
+      setSlippageRisk(null)
+      setSwapCooldownSeconds(0)
+      setIsReviewingSlippageRisk(true)
+      try {
+        const poolStats = await fetchSwapSlippagePoolRiskStatsByInputAmount(payToken, payAmount.trim())
+        const risk = await analyzeSlippageRisk({
+          pool_address: poolStats.poolAddress,
+          chain: 'monad',
+          token_in: payToken,
+          token_out: receiveToken,
+          amount_in: quote.inputAmount,
+          trade_type: 'exact_in',
+          interaction_type: 'swap',
+          pool: poolStats.priceImpactPct === null ? undefined : { price_impact_pct: poolStats.priceImpactPct },
+          extra_features: {
+            expected_output_amount: quote.expectedOutputAmount,
+            quote_input_amount: quote.inputAmount
+          }
+        })
+        if (riskReviewRequestIdRef.current !== reviewRequestId) {
+          return
+        }
+        setSlippageRisk(risk)
+        setSwapCooldownSeconds(
+          (() => {
+            const normalized = normalizeRiskLabel(risk.exceed_slippage_probability_label)
+            return normalized === 'high' || normalized === 'medium' ? 3 : 0
+          })()
+        )
+      } catch (riskError) {
+        if (riskReviewRequestIdRef.current !== reviewRequestId) {
+          return
+        }
+        setSlippageRisk(null)
+        setSwapCooldownSeconds(0)
+        setSlippageRiskWarning(
+          riskError instanceof Error ? riskError.message : 'Failed to analyze slippage risk.'
+        )
+      } finally {
+        if (riskReviewRequestIdRef.current === reviewRequestId) {
+          setReviewedQuoteKey(currentQuoteKey)
+          setIsReviewingSlippageRisk(false)
+        }
+      }
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const tx = await swapByInputAmount(payToken, payAmount.trim())
       setTxHash(tx)
       setPayAmount('')
       setQuote(null)
+      setReviewedQuoteKey('')
+      setSlippageRisk(null)
+      setSwapCooldownSeconds(0)
 
       try {
         const nextBalance = await fetchBalance()
@@ -231,6 +352,11 @@ const SwapPage = () => {
             setReceiveToken(event.target.value as SwapTargetToken)
             setError('')
             setTxHash('')
+            setSlippageRisk(null)
+            setSlippageRiskWarning('')
+            setReviewedQuoteKey('')
+            setSwapCooldownSeconds(0)
+            riskReviewRequestIdRef.current += 1
           }}
           style={{
             minWidth: 100,
@@ -279,7 +405,14 @@ const SwapPage = () => {
               <input
                 aria-label={`Amount to pay in ${payToken}`}
                 value={payAmount}
-                onChange={(event) => setPayAmount(event.target.value)}
+                onChange={(event) => {
+                  setPayAmount(event.target.value)
+                  setSlippageRisk(null)
+                  setSlippageRiskWarning('')
+                  setReviewedQuoteKey('')
+                  setSwapCooldownSeconds(0)
+                  riskReviewRequestIdRef.current += 1
+                }}
                 placeholder="0.0"
                 inputMode="decimal"
                 style={{
@@ -368,6 +501,22 @@ const SwapPage = () => {
             {quoteError}
           </div>
         ) : null}
+        {slippageRiskWarning ? (
+          <div
+            style={{
+              fontSize: 12,
+              color: '#7a4b00',
+              background: '#fff5df',
+              border: '1px solid #f1b83a',
+              padding: '8px 10px',
+              borderRadius: 10,
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word'
+            }}
+          >
+            Slippage risk analysis unavailable: {slippageRiskWarning}
+          </div>
+        ) : null}
         {isInsufficientBalance ? (
           <div
             style={{
@@ -418,7 +567,7 @@ const SwapPage = () => {
           </div>
         ) : null}
 
-        <RiskPanel />
+        <RiskPanel slippageRisk={slippageRisk} />
 
         <button
           type="submit"
@@ -427,14 +576,22 @@ const SwapPage = () => {
             padding: '10px 12px',
             borderRadius: 12,
             border: 'none',
-            background: 'var(--accent)',
+            background: swapButtonBackground ?? 'var(--accent)',
             color: '#fff',
             fontWeight: 700,
             cursor: canSubmit ? 'pointer' : 'default',
             opacity: canSubmit ? 1 : 0.6
           }}
         >
-          {isSubmitting ? 'Swapping...' : `Swap ${payToken} to ${receiveToken}`}
+          {isReviewingSlippageRisk
+            ? 'Analyzing Slippage...'
+            : isSubmitting
+              ? 'Swapping...'
+              : hasReviewedCurrentQuote
+                ? isSwapCooldownActive
+                  ? `Swap Now (${swapCooldownSeconds}s)`
+                  : `Swap ${payToken} to ${receiveToken}`
+                : 'Review Slippage Risk'}
         </button>
       </form>
     </section>
