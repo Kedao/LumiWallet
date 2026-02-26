@@ -10,6 +10,7 @@ if __package__ is None or __package__ == "":
     from service.handlers import RiskService
     from service.models import (
         ContractRiskRequest,
+        PhishingRiskResponse,
         PhishingRiskRequest,
         SecurityRiskResponse,
         SlippageRiskRequest,
@@ -19,6 +20,7 @@ else:
     from .handlers import RiskService
     from .models import (
         ContractRiskRequest,
+        PhishingRiskResponse,
         PhishingRiskRequest,
         SecurityRiskResponse,
         SlippageRiskRequest,
@@ -29,8 +31,8 @@ app = FastAPI(title="LumiWallet Risk Service", version="0.1.0")
 service = RiskService()
 
 
-@app.post("/risk/phishing", response_model=SecurityRiskResponse)
-def phishing_risk(req: PhishingRiskRequest) -> SecurityRiskResponse:
+@app.post("/risk/phishing", response_model=PhishingRiskResponse)
+def phishing_risk(req: PhishingRiskRequest) -> PhishingRiskResponse:
     return service.phishing(req)
 
 

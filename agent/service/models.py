@@ -9,31 +9,10 @@ class TagInfo(BaseModel):
     url: Optional[str] = None
 
 
-class LifecycleInfo(BaseModel):
-    first_seen_timestamp: Optional[int] = None
-    last_seen_timestamp: Optional[int] = None
-    active_days: Optional[int] = None
-    account_age_days: Optional[int] = None
-    gas_funder: Optional[str] = None
-
-
-# NOTE: TxStats requires aggregation; enable when frontend can provide stats.
-# class TxStats(BaseModel):
-#     window: Optional[str] = None
-#     tx_count: Optional[int] = None
-#     in_count: Optional[int] = None
-#     out_count: Optional[int] = None
-#     in_out_ratio: Optional[float] = None
-#     fast_outflow_pct: Optional[float] = None
-#     median_hold_time_sec: Optional[int] = None
-#     approve_count: Optional[int] = None
-#     contract_interactions: Optional[int] = None
-
-
 class AccountTransaction(BaseModel):
     tx_hash: str
     timestamp: int
-    from_address: str
+    from_address: str = Field(description="Historical counterparty candidate address source")
     to_address: Optional[str] = None
     value: Optional[str] = None
     token_address: Optional[str] = None
@@ -46,28 +25,14 @@ class AccountTransaction(BaseModel):
     success: Optional[bool] = None
 
 
-# NOTE: Graph signals require address graph indexing; enable when available.
-# class GraphSignals(BaseModel):
-#     cluster_score: Optional[float] = None
-#     hops_to_tagged: Optional[int] = None
-#     similar_addresses: Optional[List[str]] = None
-
-
 class PhishingRiskRequest(BaseModel):
     address: str
     chain: str = "monad"
     lang: Optional[str] = Field(default="zh", description="Response language: zh | en")
-    interaction_type: Optional[str] = Field(
-        default=None, description="transfer | approve | contract_call"
-    )
     transactions: Optional[List[AccountTransaction]] = Field(
-        default=None, description="Most recent up to 100 transactions"
+        default=None,
+        description="Locally stored historical transactions used for address similarity comparison",
     )
-    lifecycle: Optional[LifecycleInfo] = None
-    # tx_stats: Optional[TxStats] = None
-    # graph: Optional[GraphSignals] = None
-    tags: Optional[List[TagInfo]] = None
-    extra_features: Optional[Dict[str, Any]] = None
 
 
 class ContractCodeInfo(BaseModel):
@@ -133,39 +98,22 @@ class ContractRiskRequest(BaseModel):
     extra_features: Optional[Dict[str, Any]] = None
 
 
-class OrderBookLevel(BaseModel):
-    price: str
-    amount: str
-
-
-class OrderBookStats(BaseModel):
-    bids: Optional[List[OrderBookLevel]] = None
-    asks: Optional[List[OrderBookLevel]] = None
-    spread_bps: Optional[float] = None
-
-
-class PoolStats(BaseModel):
-    liquidity: Optional[float] = None
-    volume_5m: Optional[float] = None
-    volume_1h: Optional[float] = None
+class SlippagePoolStats(BaseModel):
     price_impact_pct: Optional[float] = None
+    token_pay_amount: Optional[str] = None
+    token_get_amount: Optional[str] = None
+    type: Optional[str] = "AMM"
 
 
 class SlippageRiskRequest(BaseModel):
     pool_address: str
     chain: str = "monad"
     lang: Optional[str] = Field(default="zh", description="Response language: zh | en")
-    token_in: str
-    token_out: str
-    amount_in: str
-    time_window: Optional[str] = "5m"
-    trade_type: Optional[str] = "exact_in"
+    token_pay_amount: str
     interaction_type: Optional[str] = Field(
-        default=None, description="swap"
+        default="swap", description="swap"
     )
-    orderbook: Optional[OrderBookStats] = None
-    pool: Optional[PoolStats] = None
-    extra_features: Optional[Dict[str, Any]] = None
+    pool: Optional[SlippagePoolStats] = None
 
 
 class RiskReason(BaseModel):
@@ -193,29 +141,33 @@ class SecurityRiskResponse(BaseModel):
     )
 
 
-class SlippageFactor(BaseModel):
-    factor: str = Field(description="导致滑点的关键因素名称")
-    explanation: str = Field(description="该因素如何影响滑点与执行结果的解释")
+class PhishingRiskResponse(BaseModel):
+    risk_level: Literal["high", "medium", "low", "unknown", "高", "中", "低", "未知"] = Field(
+        description="钓鱼风险等级。英文可用 high/medium/low/unknown，中文可用 高/中/低/未知。"
+    )
+    summary: str = Field(description="钓鱼风险总结")
+    confidence: float = Field(ge=0, le=1, description="模型对钓鱼风险判断的置信度")
+    most_similar_address: Optional[str] = Field(
+        default=None,
+        description="本地交易记录中与目标地址最相似的地址",
+    )
+    most_similar_similarity: float = Field(
+        ge=0,
+        le=1,
+        description="最相似地址与目标地址的加权相似度（0~1）",
+    )
+    most_similar_transactions: List[AccountTransaction] = Field(
+        default_factory=list,
+        description="与最相似地址相关的最近交易详情，按 timestamp 倒序，最多 3 笔",
+    )
+    similarity_method: str = Field(
+        default="weighted(prefix=0.4,suffix=0.4,levenshtein=0.2)",
+        description="相似度计算方法说明",
+    )
 
 
 class SlippageRiskResponse(BaseModel):
-    expected_slippage_pct: float = Field(
-        ge=0,
-        description="预期滑点百分比（数值）。例如 1.35 表示约 1.35% 的预期滑点",
+    slippage_level: Literal["high", "medium", "low", "unknown", "高", "中", "低", "未知"] = Field(
+        description="滑点大小的定性等级。英文可用 high/medium/low/unknown，中文可用 高/中/低/未知。"
     )
-    exceed_slippage_probability_label: Literal["high", "medium", "low", "unknown", "高", "中", "低", "未知"] = Field(
-        description=(
-            "超过预期滑点概率的标签化结果。"
-            "英文可用 high/medium/low/unknown，中文可用 高/中/低/未知。"
-        )
-    )
-    summary: str = Field(description="对本次交易滑点风险的总结性结论")
-    key_factors: List[SlippageFactor] = Field(
-        default_factory=list,
-        min_length=2,
-        description="关键影响因素列表，至少 2 条",
-    )
-    market_context: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="用于支撑判断的市场上下文数据，例如流动性、价差、订单数量等",
-    )
+    summary: str = Field(description="一句通俗解释为什么会发生这种滑点")

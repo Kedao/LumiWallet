@@ -45,7 +45,17 @@ uv run tests/integration_api_test.py
 - `POST /risk/slippage`
 
 **返回结构**
-- `POST /risk/phishing` 与 `POST /risk/contract`
+- `POST /risk/phishing`
+  - 返回 `PhishingRiskResponse`
+  - 字段：
+    - `risk_level`：`high | medium | low | unknown`
+    - `summary`：总体结论
+    - `confidence`：`0~1`
+    - `most_similar_address`：最相似地址（无数据时为 `null`）
+    - `most_similar_similarity`：最相似地址相似度（`0~1`）
+    - `most_similar_transactions`：最相似地址相关交易详情（按时间倒序，最多 3 笔）
+    - `similarity_method`：相似度算法说明
+- `POST /risk/contract`
   - 返回 `SecurityRiskResponse`
   - 字段：
     - `risk_level`：`high | medium | low | unknown`
@@ -55,33 +65,33 @@ uv run tests/integration_api_test.py
 - `POST /risk/slippage`
   - 返回 `SlippageRiskResponse`
   - 字段：
-    - `expected_slippage_pct`：预期滑点百分比（数值，`1.2` 代表 `1.2%`）
-    - `exceed_slippage_probability_label`：超过预期滑点的概率标签（`高|中|低|未知` 或 `high|medium|low|unknown`）
-    - `summary`：总体结论
-    - `key_factors`：关键解释因子列表（每条 `factor` + `explanation`）
-    - `market_context`：上下文指标（如 `liquidity`、`spread_bps`、`order_count`）
+    - `slippage_level`：滑点大小（定性等级：`high | medium | low | unknown`）
+    - `summary`：一句通俗解释“为什么会发生这种滑点”
 
 **返回样例**
 - `POST /risk/phishing` 返回示例
 ```json
 {
   "risk_level": "高",
-  "summary": "该地址存在明显钓鱼风险，建议阻断交易。",
-  "confidence": 0.86,
-  "top_reasons": [
+  "summary": "目标地址与历史交易地址高度相似，存在仿冒风险。",
+  "confidence": 0.84,
+  "most_similar_address": "0xA11ce0000000000000000000000000000000BEEA",
+  "most_similar_similarity": 0.93,
+  "most_similar_transactions": [
     {
-      "reason": "命中钓鱼标签",
-      "explanation": "外部情报源标记该地址与钓鱼活动相关。"
+      "tx_hash": "0x1111",
+      "timestamp": 1739001000,
+      "from_address": "0xA11ce0000000000000000000000000000000BEEA",
+      "to_address": "0xA11ce0000000000000000000000000000000BEE9"
     },
     {
-      "reason": "账户年龄过短",
-      "explanation": "账户创建时间较近，缺乏可信历史行为。"
-    },
-    {
-      "reason": "失败交易占比偏高",
-      "explanation": "近期失败交易较多，行为模式异常。"
+      "tx_hash": "0x2222",
+      "timestamp": 1739001600,
+      "from_address": "0xA11ce0000000000000000000000000000000BEE8",
+      "to_address": "0xA11ce0000000000000000000000000000000BEE7"
     }
-  ]
+  ],
+  "similarity_method": "weighted(prefix=0.4,suffix=0.4,levenshtein=0.2)"
 }
 ```
 
@@ -111,56 +121,43 @@ uv run tests/integration_api_test.py
 - `POST /risk/slippage` 返回示例
 ```json
 {
-  "expected_slippage_pct": 1.42,
-  "exceed_slippage_probability_label": "中",
-  "summary": "当前流动性与价差条件下，存在中等概率出现超预期滑点。",
-  "key_factors": [
-    {
-      "factor": "价差偏宽",
-      "explanation": "订单簿买卖价差较大，成交价格更容易偏离预期。"
-    },
-    {
-      "factor": "池子流动性一般",
-      "explanation": "大额成交会引发更明显价格冲击。"
-    }
-  ],
-  "market_context": {
-    "liquidity": 18500.0,
-    "spread_bps": 96.0,
-    "order_count": 14
-  }
+  "slippage_level": "中",
+  "summary": "本次输入金额相对池子规模偏大，会明显推动池内价格，因此会出现中等滑点。"
 }
 ```
 
 **请求概述**
 - `POST /risk/phishing`
   - 用于钓鱼地址风险分析
-  - 主要输入：`address`，`lang`（默认 `zh`），`interaction_type`，`transactions`（最近最多 100 笔），`lifecycle`，`tags`
+  - 主要输入：`address`，`lang`（默认 `zh`），`transactions`（本地保存的交易记录，最近最多 100 笔）
 - `POST /risk/contract`
   - 用于合约风险分析
   - 主要输入：`contract_address`，`lang`（默认 `zh`），`interaction_type`，`code`，`creator`，`proxy`，`permissions`，`token_flags`，`tags`
 - `POST /risk/slippage`
   - 用于滑点分析
-  - 主要输入：`pool_address`，`lang`（默认 `zh`），`token_in`，`token_out`，`amount_in`，`time_window`，`trade_type`，`orderbook`，`pool`
+  - 主要输入：`pool_address`，`lang`（默认 `zh`），`token_pay_amount`，`pool`
 
 **字段说明**
 - `POST /risk/phishing`
   - `address`：目标地址（对方地址）
   - `chain`：链标识，当前固定为 `monad`
   - `lang`：返回语言标识，支持 `zh` / `en`，默认 `zh`
-  - `interaction_type`：交互类型，`transfer` / `approve` / `contract_call`
-  - `transactions`：最近交易记录（最多 100 笔）
+  - `transactions`：本地保存的最近交易记录（最多 100 笔），用于与目标地址做相似度对比
   - `transactions[].tx_hash`：交易哈希
   - `transactions[].timestamp`：交易时间戳（秒）
-  - `transactions[].from_address`：交易发起地址
-  - `transactions[].to_address`：交易接收地址
+  - `transactions[].from_address`：候选地址来源（必填）
+  - `transactions[].to_address`：候选地址来源（可选）
+  - `transactions[].contract_address`：候选地址来源（可选）
   - `transactions[].value`：交易金额（字符串表示）
   - `transactions[].token_address`：代币合约地址（原生币可为空）
   - `transactions[].token_decimals`：代币精度
   - `transactions[].tx_type`：交易类型（`transfer` / `approve` / `contract_call` / `swap` / `mint` / `stake`）
-  - `transactions[].contract_address`：交互合约地址（若为合约交互）
   - `transactions[].method_sig`：合约方法签名（4 字节 selector，可选）
   - `transactions[].success`：交易是否成功
+  - 返回字段 `most_similar_address`：计算得到的最相似地址
+  - 返回字段 `most_similar_similarity`：最相似地址与目标地址的相似度（0~1）
+  - 返回字段 `most_similar_transactions`：最相似地址相关交易详情（最多 3 笔，按 timestamp 倒序）
+  - 返回字段 `similarity_method`：当前固定为 `weighted(prefix=0.4,suffix=0.4,levenshtein=0.2)`
 - `POST /risk/contract`
   - `contract_address`：合约地址
   - `chain`：链标识，当前固定为 `monad`
@@ -194,14 +191,13 @@ uv run tests/integration_api_test.py
   - `code.bytecode`：字节码（可选）
   - `code.compiler_version`：编译器版本
   - `code.abi`：ABI（可选）
-  - `tags`：第三方标签命中（与钓鱼接口相同）
+  - `tags`：第三方标签命中（用于合约风险辅助信号）
   - `extra_features`：预留扩展字段
 - `POST /risk/slippage`
   - `pool_address`：池子地址（如 Uniswap pool）
   - `chain`：链标识，当前固定为 `monad`
   - `lang`：返回语言标识，支持 `zh` / `en`，默认 `zh`
   - `token_pay_amount`：输入金额（字符串表示）
-  - `time_window`：统计窗口，默认 `5m`
   - `interaction_type`：交互类型，默认 `swap`
   - `pool`：池子统计信息
   - `pool.price_impact_pct`：价格冲击百分比
