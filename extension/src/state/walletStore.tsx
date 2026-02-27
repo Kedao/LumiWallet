@@ -49,7 +49,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     }
 
     loadAuthState().catch((error) => {
-      console.error('Failed to load wallet auth state', error)
+      console.error('加载钱包认证状态失败', error)
       setIsAuthReady(true)
     })
   }, [])
@@ -146,7 +146,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
 export const useWallet = () => {
   const ctx = useContext(WalletContext)
   if (!ctx) {
-    throw new Error('WalletProvider is missing')
+    throw new Error('缺少 WalletProvider。')
   }
   return ctx
 }

@@ -51,7 +51,7 @@ const Layout = ({ children }: PropsWithChildren) => {
       if (error instanceof Error) {
         setMenuError(error.message)
       } else {
-        setMenuError('Failed to switch account.')
+        setMenuError('切换账户失败。')
       }
     }
   }
@@ -69,7 +69,7 @@ const Layout = ({ children }: PropsWithChildren) => {
       if (error instanceof Error) {
         setMenuError(error.message)
       } else {
-        setMenuError('Failed to import account.')
+        setMenuError('导入账户失败。')
       }
     } finally {
       setIsImporting(false)
@@ -91,7 +91,7 @@ const Layout = ({ children }: PropsWithChildren) => {
       if (error instanceof Error) {
         setMenuError(error.message)
       } else {
-        setMenuError('Failed to remove account.')
+        setMenuError('移除账户失败。')
       }
     } finally {
       setIsRemoving(false)
@@ -133,7 +133,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                   justifyContent: 'space-between',
                   minWidth: 0
                 }}
-                aria-label="Switch account"
+                aria-label="切换账户"
               >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                   <span
@@ -156,7 +156,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                   </span>
                   <span style={{ textAlign: 'left', minWidth: 0, flex: 1 }}>
                     <span style={{ display: 'block', fontSize: 12, fontWeight: 700, lineHeight: 1.1 }}>
-                      {account?.label ?? `Account ${activeAccountIndex || ''}`}
+                      {account?.label ?? `账户 ${activeAccountIndex || ''}`}
                     </span>
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                       {account ? (
@@ -194,7 +194,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                     zIndex: 10
                   }}
                 >
-                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Accounts</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>账户列表</div>
                   <div style={{ display: 'grid', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
                     {accounts.map((item) => {
                       const isActive = account?.address === item.address
@@ -218,7 +218,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                         >
                           <span>
                             <span style={{ display: 'block', fontSize: 12, fontWeight: 700 }}>
-                              {item.label ?? 'Account'}
+                              {item.label ?? '账户'}
                             </span>
                             <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>
                               <HashText
@@ -232,7 +232,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                             </span>
                           </span>
                           {isActive ? (
-                            <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700 }}>Selected</span>
+                            <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700 }}>当前</span>
                           ) : null}
                         </button>
                       )
@@ -261,7 +261,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                         textAlign: 'left'
                       }}
                     >
-                      {isImportOpen ? 'Cancel Import' : 'Import New Account'}
+                      {isImportOpen ? '取消导入' : '导入新账户'}
                     </button>
 
                     {!isImportOpen ? (
@@ -277,7 +277,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                           }}
                         >
                           <div style={{ fontSize: 12, color: '#8b2b2b' }}>
-                            此账户将从 Lumi 去除，请确保您拥有该账户的私钥。
+                            该账户将从 Lumi 移除，请确保已备份该账户私钥。
                           </div>
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button
@@ -294,7 +294,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                                 fontWeight: 600
                               }}
                             >
-                              Cancel
+                              取消
                             </button>
                             <button
                               onClick={() => {
@@ -313,7 +313,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                                 opacity: !account || isRemoving ? 0.7 : 1
                               }}
                             >
-                              {isRemoving ? 'Removing...' : 'Confirm Remove'}
+                              {isRemoving ? '移除中...' : '确认移除'}
                             </button>
                           </div>
                         </div>
@@ -336,7 +336,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                             opacity: !account ? 0.7 : 1
                           }}
                         >
-                          Remove Current Account
+                          移除当前账户
                         </button>
                       )
                     ) : null}
@@ -347,7 +347,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                           type="password"
                           value={privateKey}
                           onChange={(event) => setPrivateKey(event.target.value)}
-                          placeholder="Private key (0x...)"
+                          placeholder="私钥 (0x...)"
                           autoComplete="off"
                           autoCorrect="off"
                           autoCapitalize="off"
@@ -374,7 +374,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                             opacity: isImporting ? 0.8 : 1
                           }}
                         >
-                          {isImporting ? 'Importing...' : 'Confirm Import'}
+                          {isImporting ? '导入中...' : '确认导入'}
                         </button>
                       </form>
                     ) : null}
@@ -410,7 +410,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                 color: 'var(--muted)'
               }}
             >
-              No Account
+              无账户
             </button>
           )
         ) : null}
@@ -440,7 +440,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                 flex: '0 0 auto'
               }}
             />
-            <span style={{ fontSize: 10, color: '#6a7f95', lineHeight: 1.1 }}>Network</span>
+            <span style={{ fontSize: 10, color: '#6a7f95', lineHeight: 1.1 }}>网络</span>
           </span>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#2f4d6b', lineHeight: 1.15 }}>
             {DEFAULT_EXTENSION_NETWORK.name}
@@ -457,9 +457,9 @@ const Layout = ({ children }: PropsWithChildren) => {
           }}
         >
           {[
-            { to: '/home', label: 'Home' },
-            { to: '/send', label: 'Send' },
-            { to: '/swap', label: 'Swap' }
+            { to: '/home', label: '首页' },
+            { to: '/send', label: '发送' },
+            { to: '/swap', label: '兑换' }
           ].map((item) => (
             <NavLink
               key={item.to}

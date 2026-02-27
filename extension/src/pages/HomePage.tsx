@@ -61,7 +61,7 @@ const HomePage = () => {
           setHistory(nextHistory)
         }
       } catch (historyError) {
-        console.warn('Failed to refresh activity history', historyError)
+        console.warn('刷新活动记录失败', historyError)
       }
     }
 
@@ -83,7 +83,7 @@ const HomePage = () => {
       if (importError instanceof Error) {
         setError(importError.message)
       } else {
-        setError('Failed to import account.')
+        setError('导入账户失败。')
       }
     } finally {
       setIsSubmitting(false)
@@ -102,14 +102,14 @@ const HomePage = () => {
       }}
     >
       <div>
-        <h2 style={{ margin: 0 }}>Import Account</h2>
+        <h2 style={{ margin: 0 }}>导入账户</h2>
         <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 12 }}>
-          Import with private key. Address is derived automatically and you can switch accounts from the header.
+          使用私钥导入。地址会自动推导，导入后可在顶部切换账户。
         </p>
       </div>
       <form onSubmit={handleImport} style={{ display: 'grid', gap: 10 }}>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Private Key</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>私钥</span>
           <input
             type="password"
             value={privateKey}
@@ -152,7 +152,7 @@ const HomePage = () => {
             opacity: isSubmitting ? 0.8 : 1
           }}
         >
-          {isSubmitting ? 'Importing...' : 'Import Account'}
+          {isSubmitting ? '导入中...' : '导入账户'}
         </button>
       </form>
     </section>
@@ -171,7 +171,7 @@ const HomePage = () => {
             fontSize: 12
           }}
         >
-          No account selected. Please import an address to continue.
+          当前未选择账户，请先导入地址。
         </section>
         {importSection}
       </div>

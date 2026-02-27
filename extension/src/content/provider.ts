@@ -178,7 +178,7 @@ const forwardRpcRequest = async (message: InpageRpcRequestMessage): Promise<void
         id: message.id,
         auth: getResponseAuth(message.id, false, -32603),
         ok: false,
-        error: { code: -32603, message: 'Empty response from extension background.' }
+        error: { code: -32603, message: '扩展后台返回空响应。' }
       })
       console.error('[LumiWallet][Wallet->DApp]', {
         id: message.id,
@@ -186,7 +186,7 @@ const forwardRpcRequest = async (message: InpageRpcRequestMessage): Promise<void
         action,
         method,
         ok: false,
-        error: 'Empty response from extension background.'
+        error: '扩展后台返回空响应。'
       })
       return
     }
@@ -198,7 +198,7 @@ const forwardRpcRequest = async (message: InpageRpcRequestMessage): Promise<void
         action,
         method,
         ok: false,
-        error: response.error?.message ?? 'Unknown background error.'
+        error: response.error?.message ?? '未知后台错误。'
       })
     } else {
       console.info('[LumiWallet][Wallet->DApp]', {
@@ -227,7 +227,7 @@ const forwardRpcRequest = async (message: InpageRpcRequestMessage): Promise<void
       action,
       method,
       ok: false,
-      error: error instanceof Error ? error.message : 'Failed to reach extension background.'
+      error: error instanceof Error ? error.message : '无法连接扩展后台。'
     })
     postToInpage({
       source: CONTENT_SCRIPT_SOURCE,
@@ -238,7 +238,7 @@ const forwardRpcRequest = async (message: InpageRpcRequestMessage): Promise<void
       ok: false,
       error: {
         code: -32603,
-        message: error instanceof Error ? error.message : 'Failed to reach extension background.'
+        message: error instanceof Error ? error.message : '无法连接扩展后台。'
       }
     })
   }

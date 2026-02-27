@@ -45,8 +45,8 @@ const BalanceCard = () => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>Assets</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Monad Testnet</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>资产</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Monad 测试网</div>
       </div>
 
       <div style={{ display: 'grid', gap: 8 }}>
@@ -68,7 +68,7 @@ const BalanceCard = () => {
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{asset.symbol}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {asset.isNative ? 'Native token' : 'ERC20 token'}
+                  {asset.isNative ? '原生代币' : 'ERC20 代币'}
                 </div>
               </div>
             </div>

@@ -9,9 +9,9 @@ interface TxHistoryListProps {
 }
 
 const formatRecordTime = (timestamp: number): string =>
-  new Date(timestamp).toLocaleString(undefined, {
+  new Date(timestamp).toLocaleString('zh-CN', {
     year: 'numeric',
-    month: 'short',
+    month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit'
@@ -30,12 +30,12 @@ const inferTokenSymbolFromAmount = (amount: string): string | null => {
 
 const getStatusLabel = (status: TransactionRecord['status']): string => {
   if (status === 'success') {
-    return 'Success'
+    return '成功'
   }
   if (status === 'failed') {
-    return 'Failed'
+    return '失败'
   }
-  return 'Pending'
+  return '待确认'
 }
 
 const getStatusColor = (status: TransactionRecord['status']): string => {
@@ -62,7 +62,7 @@ const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
   if (record.type === 'transfer') {
     if (record.direction === 'in') {
       return {
-        label: 'Received',
+        label: '收到',
         kind: 'receive',
         badgeBg: '#e7f8ef',
         badgeColor: '#1f8f59',
@@ -71,7 +71,7 @@ const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
     }
     if (record.direction === 'self') {
       return {
-        label: 'Self',
+        label: '自转',
         kind: 'self',
         badgeBg: '#eef1f5',
         badgeColor: '#4e5d6b',
@@ -80,7 +80,7 @@ const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
     }
     if (record.direction !== 'out') {
       return {
-        label: 'Transfer',
+        label: '转账',
         kind: 'transfer',
         badgeBg: '#eef1f5',
         badgeColor: '#4e5d6b',
@@ -88,7 +88,7 @@ const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
       }
     }
     return {
-      label: 'Sent',
+      label: '发送',
       kind: 'send',
       badgeBg: '#fce9e8',
       badgeColor: '#c64545',
@@ -98,7 +98,7 @@ const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
 
   if (record.type === 'dex') {
     return {
-      label: 'Swap',
+      label: '兑换',
       kind: 'swap',
       badgeBg: '#eaf2ff',
       badgeColor: '#3464b2',
@@ -108,7 +108,7 @@ const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
 
   if (methodSig.includes('approve') || methodSig.startsWith('0x095ea7b3')) {
     return {
-      label: 'Approve',
+      label: '授权',
       kind: 'approve',
       badgeBg: '#f2edff',
       badgeColor: '#6c4eb7',
@@ -117,7 +117,7 @@ const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
   }
 
   return {
-    label: 'Contract',
+    label: '合约',
     kind: 'contract',
     badgeBg: '#eef1f5',
     badgeColor: '#4e5d6b',
@@ -252,7 +252,7 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
   const selectedRecordAmount = selectedRecord && selectedVisual
     ? applyAmountSign(selectedRecord.amount, selectedVisual.amountSign)
     : '-'
-  const counterpartyLabel = selectedRecord?.direction === 'in' ? 'From' : 'To'
+  const counterpartyLabel = selectedRecord?.direction === 'in' ? '来自' : '发送至'
 
   return (
     <section
@@ -264,7 +264,7 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
         minWidth: 0
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Activity</div>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>活动</div>
       {supportedRecords.length === 0 ? (
         <div
           style={{
@@ -276,7 +276,7 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
             background: '#fdfcf9'
           }}
         >
-          No activity yet.
+          暂无交易记录。
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
@@ -344,36 +344,36 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
             minWidth: 0
           }}
         >
-          <div style={{ fontSize: 12, fontWeight: 700 }}>Transaction Details</div>
+          <div style={{ fontSize: 12, fontWeight: 700 }}>交易详情</div>
           <div style={{ fontSize: 12 }}>
-            <strong>Type:</strong> {selectedVisual?.label ?? 'Other'}
+            <strong>类型：</strong> {selectedVisual?.label ?? '其他'}
           </div>
           <div style={{ fontSize: 12, color: getStatusColor(selectedRecord.status) }}>
-            <strong>Status:</strong> {getStatusLabel(selectedRecord.status)}
+            <strong>状态：</strong> {getStatusLabel(selectedRecord.status)}
           </div>
           <div style={{ fontSize: 12 }}>
-            <strong>Amount:</strong>{' '}
+            <strong>数量：</strong>{' '}
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {selectedRecordTokenSymbol ? <TokenIcon symbol={selectedRecordTokenSymbol} size={14} background="#f6f8fb" /> : null}
               <span>{selectedRecordAmount}</span>
             </span>
           </div>
           <div style={{ fontSize: 12 }}>
-            <strong>{counterpartyLabel}:</strong>
+            <strong>{counterpartyLabel}：</strong>
             <div style={{ marginTop: 2 }}>
               <HashText value={counterparty} mode="wrap" fontSize={11} color="var(--muted)" />
             </div>
           </div>
           {selectedRecord.methodSig ? (
             <div style={{ fontSize: 12, minWidth: 0 }}>
-              <strong>Method:</strong>
+              <strong>方法：</strong>
               <div style={{ marginTop: 2 }}>
                 <HashText value={selectedRecord.methodSig} mode="wrap" fontSize={11} color="var(--muted)" />
               </div>
             </div>
           ) : null}
           <div style={{ fontSize: 12 }}>
-            <strong>Tx:</strong>
+            <strong>交易：</strong>
             <div style={{ marginTop: 2 }}>
               <HashText value={selectedRecord.hash ?? '-'} mode="wrap" fontSize={11} color="var(--muted)" />
             </div>
@@ -391,7 +391,7 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
                 color: 'var(--accent)'
               }}
             >
-              View on Monad Explorer
+              在 Monad 浏览器查看
             </a>
           ) : null}
         </div>

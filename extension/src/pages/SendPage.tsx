@@ -191,11 +191,11 @@ const SendPage = () => {
     const senderAddress = account?.address?.trim() ?? ''
 
     if (parsedAmount === null) {
-      setError('Please enter a valid amount.')
+      setError('请输入有效金额。')
       return
     }
     if (isInsufficientBalance) {
-      setError(`Insufficient ${token} balance.`)
+      setError(`${token} 余额不足。`)
       return
     }
 
@@ -213,13 +213,13 @@ const SendPage = () => {
           const nextBalance = await fetchBalance()
           setBalance(nextBalance)
         } catch (balanceError) {
-          console.warn('Failed to refresh balance after send', balanceError)
+          console.warn('发送后刷新余额失败', balanceError)
         }
       } catch (submitError) {
         if (submitError instanceof Error) {
           setError(submitError.message)
         } else {
-          setError('Failed to send transaction.')
+          setError('发送交易失败。')
         }
       } finally {
         setIsSending(false)
@@ -232,7 +232,7 @@ const SendPage = () => {
     }
 
     if (!senderAddress) {
-      setError('No active sender account.')
+      setError('当前没有可用的发送账户。')
       return
     }
 
@@ -263,7 +263,7 @@ const SendPage = () => {
           }))
         })
         const riskLevel = getNormalizedRiskLevel(risk)
-        console.info('Phishing risk review result', risk)
+        console.info('钓鱼风险评估结果', risk)
 
         if (riskLevel === 'high' || riskLevel === 'medium') {
           setPhishingRisk(risk)
@@ -279,8 +279,8 @@ const SendPage = () => {
         setPhishingRisk(null)
         setPendingRiskAddress('')
         setSendCooldownSeconds(0)
-        console.warn('Failed to analyze phishing risk', riskError)
-        setHistoryWarning('Phishing risk analysis request failed. Sending directly.')
+        console.warn('钓鱼风险分析失败', riskError)
+        setHistoryWarning('钓鱼风险分析请求失败，将直接发送。')
       }
     } catch (reviewError) {
       setPhishingRisk(null)
@@ -289,7 +289,7 @@ const SendPage = () => {
       if (reviewError instanceof Error) {
         setError(reviewError.message)
       } else {
-        setError('Failed to query recent transactions for this address.')
+        setError('查询该地址最近交易失败。')
       }
       return
     } finally {
@@ -311,14 +311,14 @@ const SendPage = () => {
         minWidth: 0
       }}
     >
-      <h2 style={{ margin: 0 }}>Send Asset</h2>
+      <h2 style={{ margin: 0 }}>发送资产</h2>
 
       <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10, minWidth: 0 }}>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Token</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>代币</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
             <TokenIcon symbol={token} size={18} background="#f1f5fb" />
-            <span>Selected: {token}</span>
+            <span>当前选择：{token}</span>
           </div>
           <select
             value={token}
@@ -349,7 +349,7 @@ const SendPage = () => {
         </label>
 
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>To Address</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>接收地址</span>
           <input
             value={toAddress}
             onChange={(event) => {
@@ -373,7 +373,7 @@ const SendPage = () => {
         </label>
 
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Amount ({token})</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>金额 ({token})</span>
           <input
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
@@ -390,7 +390,7 @@ const SendPage = () => {
         </label>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
-          <span>Available:</span>
+          <span>可用：</span>
           <TokenIcon symbol={token} size={16} background="#f6f8fb" />
           <span>{formatDisplayAmount(availableAmount)} {token}</span>
         </div>
@@ -408,7 +408,7 @@ const SendPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            Please enter a valid amount.
+            请输入有效金额。
           </div>
         ) : null}
         {isInsufficientBalance ? (
@@ -424,7 +424,7 @@ const SendPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            Insufficient {token} balance.
+            {token} 余额不足。
           </div>
         ) : null}
         {error ? (
@@ -472,7 +472,7 @@ const SendPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            <div>Sent successfully. Tx:</div>
+            <div>发送成功，交易哈希：</div>
             <div style={{ marginTop: 2 }}>
               <HashText value={txHash} mode="wrap" fontSize={11} color="#1f5e41" />
             </div>
@@ -495,14 +495,14 @@ const SendPage = () => {
           }}
         >
           {isAnalyzingRisk
-            ? 'Checking Risk...'
+            ? '风险检查中...'
             : isSending
-              ? 'Sending...'
+              ? '发送中...'
               : isPendingCurrentRiskConfirmation
                 ? isRiskCooldownActive
-                  ? `Confirm Send (${sendCooldownSeconds}s)`
-                  : 'Confirm and Send'
-                : 'Send'}
+                  ? `确认发送 (${sendCooldownSeconds}s)`
+                  : '确认并发送'
+                : '发送'}
         </button>
       </form>
     </section>

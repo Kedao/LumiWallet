@@ -116,9 +116,9 @@ const getExplorerAddressUrl = (address: string): string => {
 }
 
 const formatApproveAmount = (details: ApprovalErc20ApproveDetails): string => {
-  const tokenLabel = details.tokenSymbol?.trim() ? details.tokenSymbol : 'Token'
+  const tokenLabel = details.tokenSymbol?.trim() ? details.tokenSymbol : '代币'
   if (typeof details.amount !== 'string') {
-    return `Unavailable ${tokenLabel}`
+    return `${tokenLabel} 数量不可用`
   }
   return `${details.amount} ${tokenLabel}`
 }
@@ -139,6 +139,20 @@ const normalizeRiskLevel = (
     return 'low'
   }
   return 'unknown'
+}
+
+const getRiskLevelLabel = (value: SecurityRiskResponse['risk_level']): string => {
+  const normalized = normalizeRiskLevel(value)
+  if (normalized === 'high') {
+    return '高'
+  }
+  if (normalized === 'medium') {
+    return '中'
+  }
+  if (normalized === 'low') {
+    return '低'
+  }
+  return '未知'
 }
 
 const getRiskPalette = (risk: SecurityRiskResponse | null) => {
@@ -200,7 +214,7 @@ const parseNumberishTimestamp = (value: unknown): number | null => {
 
 const fetchMonadscan = async (params: Record<string, string>): Promise<MonadscanV2Envelope> => {
   if (!MONADSCAN_API_KEY) {
-    throw new Error('Missing VITE_MONADSCAN_API_KEY in .env.')
+    throw new Error('缺少 .env 中的 VITE_MONADSCAN_API_KEY。')
   }
 
   const query = new URLSearchParams({
@@ -210,7 +224,7 @@ const fetchMonadscan = async (params: Record<string, string>): Promise<Monadscan
   })
   const response = await fetch(`${MONADSCAN_V2_API_BASE_URL}?${query.toString()}`)
   if (!response.ok) {
-    throw new Error('Failed to query Monadscan API.')
+    throw new Error('查询 Monadscan API 失败。')
   }
   return (await response.json()) as MonadscanV2Envelope
 }
@@ -538,7 +552,7 @@ const ApprovalApp = () => {
 
   useEffect(() => {
     if (!approvalId) {
-      setError('Approval request id is missing.')
+      setError('缺少授权请求 ID。')
       setIsLoading(false)
       return
     }
@@ -552,7 +566,7 @@ const ApprovalApp = () => {
           approvalId
         })
         if (!response.ok || !response.request) {
-          setError(response.error?.message ?? 'Approval request not found.')
+          setError(response.error?.message ?? '未找到授权请求。')
           return
         }
         setContractRisk(null)
@@ -560,7 +574,7 @@ const ApprovalApp = () => {
         setApproveCooldownSeconds(0)
         setRequest(response.request)
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load approval request.')
+        setError(loadError instanceof Error ? loadError.message : '加载授权请求失败。')
       } finally {
         setIsLoading(false)
       }
@@ -599,7 +613,7 @@ const ApprovalApp = () => {
       try {
         const payload = await buildContractRiskPayload(request)
         if (!payload) {
-          throw new Error('Unable to build contract risk request payload.')
+          throw new Error('无法构建合约风险分析请求。')
         }
         const result = await analyzeContractRisk(payload)
         if (cancelled) {
@@ -613,7 +627,7 @@ const ApprovalApp = () => {
         }
         setContractRisk(null)
         setApproveCooldownSeconds(0)
-        setRiskWarning(riskError instanceof Error ? riskError.message : 'Failed to analyze contract risk.')
+        setRiskWarning(riskError instanceof Error ? riskError.message : '合约风险分析失败。')
       } finally {
         if (!cancelled) {
           setIsAnalyzingContractRisk(false)
@@ -640,12 +654,12 @@ const ApprovalApp = () => {
         approved
       })
       if (!response.ok) {
-        setError(response.error?.message ?? 'Failed to submit approval decision.')
+        setError(response.error?.message ?? '提交授权决定失败。')
         return
       }
       window.close()
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Failed to submit approval decision.')
+      setError(submitError instanceof Error ? submitError.message : '提交授权决定失败。')
     } finally {
       setIsSubmitting(false)
     }
@@ -683,47 +697,47 @@ const ApprovalApp = () => {
         }}
       >
         <div>
-          <h1 style={{ margin: 0, fontSize: 18 }}>Approval Request</h1>
+          <h1 style={{ margin: 0, fontSize: 18 }}>授权请求</h1>
           <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-            LumiWallet approval required
+            需要在 LumiWallet 中确认授权
           </div>
         </div>
 
         {isLoading ? (
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Loading request...</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>正在加载请求...</div>
         ) : null}
 
         {!isLoading && request ? (
           <div style={{ display: 'grid', gap: 8 }}>
             <div style={{ fontSize: 12 }}>
-              <strong>Site</strong>
+              <strong>网站</strong>
               <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
                 {request.origin}
               </div>
             </div>
             <div style={{ fontSize: 12 }}>
-              <strong>Action</strong>
+              <strong>操作</strong>
               <div style={{ marginTop: 4, color: 'var(--muted)' }}>{request.method}</div>
             </div>
             <div style={{ fontSize: 12 }}>
-              <strong>Account</strong>
+              <strong>账户</strong>
               <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
-                {request.selectedAddress ?? 'No account selected'}
+                {request.selectedAddress ?? '未选择账户'}
               </div>
             </div>
             {request.details?.type === 'erc20_approve' ? (
               <>
                 <div style={{ fontSize: 12 }}>
-                  <strong>Approve Amount</strong>
+                  <strong>授权额度</strong>
                   <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
                     {formatApproveAmount(request.details)}
                   </div>
                 </div>
                 <div style={{ fontSize: 12 }}>
-                  <strong>Token</strong>
+                  <strong>代币</strong>
                   <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
                     {(() => {
-                      const tokenLabel = request.details?.tokenSymbol?.trim() || 'Unknown Token'
+                      const tokenLabel = request.details?.tokenSymbol?.trim() || '未知代币'
                       const explorerUrl = getExplorerAddressUrl(request.details?.tokenAddress ?? '')
                       if (!explorerUrl) {
                         return tokenLabel
@@ -742,7 +756,7 @@ const ApprovalApp = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 12 }}>
-                  <strong>Spender</strong>
+                  <strong>被授权方</strong>
                   <div style={{ marginTop: 4, color: 'var(--muted)', wordBreak: 'break-all' }}>
                     {request.details.spender}
                   </div>
@@ -763,7 +777,7 @@ const ApprovalApp = () => {
               padding: '8px 10px'
             }}
           >
-            Analyzing contract risk...
+            正在分析合约风险...
           </div>
         ) : null}
 
@@ -788,7 +802,7 @@ const ApprovalApp = () => {
               return (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: palette.text }}>Contract Risk</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: palette.text }}>合约风险</div>
                     <span
                       style={{
                         fontSize: 11,
@@ -799,11 +813,11 @@ const ApprovalApp = () => {
                         padding: '2px 8px'
                       }}
                     >
-                      {String(contractRisk.risk_level).toUpperCase()}
+                      {getRiskLevelLabel(contractRisk.risk_level)}
                     </span>
                   </div>
                   <div style={{ fontSize: 12, color: palette.text, wordBreak: 'break-word' }}>
-                    {contractRisk.summary || 'No summary returned by the risk service.'}
+                    {contractRisk.summary || '风险服务未返回摘要。'}
                   </div>
                 </>
               )
@@ -822,7 +836,7 @@ const ApprovalApp = () => {
               padding: '8px 10px'
             }}
           >
-            Contract risk analysis unavailable: {riskWarning}
+            合约风险分析不可用：{riskWarning}
           </div>
         ) : null}
 
@@ -858,7 +872,7 @@ const ApprovalApp = () => {
               cursor: isSubmitting || isLoading ? 'not-allowed' : 'pointer'
             }}
           >
-            Reject
+            拒绝
           </button>
           <button
             type="button"
@@ -879,12 +893,12 @@ const ApprovalApp = () => {
             }}
           >
             {isSubmitting
-              ? 'Submitting...'
+              ? '提交中...'
               : isAnalyzingContractRisk
-                ? 'Analyzing Risk...'
+                ? '风险分析中...'
                 : isApproveCooldownActive
-                  ? `Approve (${approveCooldownSeconds}s)`
-                  : 'Approve'}
+                  ? `授权 (${approveCooldownSeconds}s)`
+                  : '授权'}
           </button>
         </div>
       </section>
@@ -894,7 +908,7 @@ const ApprovalApp = () => {
 
 const container = document.getElementById('root')
 if (!container) {
-  throw new Error('Root container not found')
+  throw new Error('未找到根容器。')
 }
 
 createRoot(container).render(

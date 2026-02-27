@@ -271,7 +271,7 @@ const postJson = async <TRequest, TResponse>(path: string, payload: TRequest): P
   })
 
   if (!response.ok) {
-    throw new Error(`Agent API request failed (${path}): ${await readErrorMessage(response)}`)
+    throw new Error(`Agent API 请求失败 (${path})：${await readErrorMessage(response)}`)
   }
 
   return (await response.json()) as TResponse
@@ -303,7 +303,7 @@ const toApiSlippageRequest = (payload: SlippageRiskInput): ApiSlippageRiskReques
       ? payload.amount_in.trim()
       : ''
   if (!tokenPayAmount) {
-    throw new Error('token_pay_amount is required for /risk/slippage.')
+    throw new Error('/risk/slippage 需要 token_pay_amount。')
   }
 
   const pool = payload.pool
@@ -331,7 +331,7 @@ const toSlippageRiskResponse = (
   const level = response.exceed_slippage_probability_label ?? response.slippage_level ?? 'unknown'
   const summary = typeof response.summary === 'string' && response.summary.trim()
     ? response.summary
-    : 'No summary returned by the risk service.'
+    : '风险服务未返回摘要。'
   const expectedSlippage =
     typeof response.expected_slippage_pct === 'number'
       ? response.expected_slippage_pct

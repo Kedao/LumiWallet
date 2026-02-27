@@ -1,8 +1,8 @@
 const QuickActions = () => {
   const actions = [
-    { label: 'Swap', hint: 'DEX Aggregator' },
-    { label: 'Send', hint: 'Transfer MON' },
-    { label: 'Contracts', hint: 'Interact via DApp' }
+    { label: '兑换', hint: 'DEX 聚合' },
+    { label: '发送', hint: '转账 MON' },
+    { label: '合约', hint: '通过 DApp 交互' }
   ]
 
   return (
@@ -14,7 +14,7 @@ const QuickActions = () => {
         border: '1px solid var(--border)'
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Quick Actions</div>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>快捷操作</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
         {actions.map((action) => (
           <div

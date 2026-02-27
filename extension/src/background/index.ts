@@ -583,7 +583,7 @@ const recordInteractionLog = async (
       details
     })
   } catch (error) {
-    console.warn('[LumiWallet][DApp] Failed to persist interaction log', error)
+    console.warn('[LumiWallet][DApp] 写入交互日志失败', error)
   }
 
   const logPayload = {
@@ -615,7 +615,7 @@ const normalizeOrigin = (origin: string): string => {
 const getValidatedOrigin = (origin: string): string => {
   const normalizedOrigin = normalizeOrigin(origin)
   if (!normalizedOrigin) {
-    throw toRpcError(4100, 'Invalid request origin.')
+    throw toRpcError(4100, '无效的请求来源。')
   }
   return normalizedOrigin
 }
@@ -669,20 +669,20 @@ const tryNormalizeAddress = (value: string): string | null => {
 const parseQuantity = (value: unknown, field: string): bigint => {
   if (typeof value === 'bigint') {
     if (value < 0n) {
-      throw toRpcError(-32602, `Invalid ${field} value.`)
+      throw toRpcError(-32602, `无效的 ${field} 值。`)
     }
     return value
   }
   if (typeof value === 'number') {
     if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
-      throw toRpcError(-32602, `Invalid ${field} value.`)
+      throw toRpcError(-32602, `无效的 ${field} 值。`)
     }
     return BigInt(value)
   }
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) {
-      throw toRpcError(-32602, `Invalid ${field} value.`)
+      throw toRpcError(-32602, `无效的 ${field} 值。`)
     }
     try {
       const parsed = BigInt(trimmed)
@@ -691,16 +691,16 @@ const parseQuantity = (value: unknown, field: string): bigint => {
       }
       return parsed
     } catch {
-      throw toRpcError(-32602, `Invalid ${field} value.`)
+      throw toRpcError(-32602, `无效的 ${field} 值。`)
     }
   }
-  throw toRpcError(-32602, `Invalid ${field} value.`)
+  throw toRpcError(-32602, `无效的 ${field} 值。`)
 }
 
 const parseNonce = (value: unknown): number => {
   const parsed = parseQuantity(value, 'nonce')
   if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw toRpcError(-32602, 'Invalid nonce value.')
+    throw toRpcError(-32602, '无效的 nonce 值。')
   }
   return Number(parsed)
 }
@@ -710,14 +710,14 @@ const parseChainId = (value: unknown): bigint => parseQuantity(value, 'chainId')
 const assertUnlocked = async (): Promise<void> => {
   const unlocked = await isWalletUnlocked()
   if (!unlocked) {
-    throw toRpcError(4100, 'Wallet is locked. Please unlock LumiWallet first.')
+    throw toRpcError(4100, '钱包已锁定，请先解锁 LumiWallet。')
   }
 }
 
 const assertAuthorizedOrigin = async (normalizedOrigin: string): Promise<void> => {
   const authorized = await isOriginAuthorized(normalizedOrigin)
   if (!authorized) {
-    throw toRpcError(4100, 'Unauthorized origin. Please call eth_requestAccounts first.')
+    throw toRpcError(4100, '未授权来源，请先调用 eth_requestAccounts。')
   }
 }
 
@@ -739,7 +739,7 @@ const decryptImportedPrivateKey = async (
       ['decrypt']
     )
   } catch {
-    throw toRpcError(4100, 'Wallet session is invalid. Please unlock LumiWallet again.')
+    throw toRpcError(4100, '钱包会话无效，请重新解锁 LumiWallet。')
   }
 
   try {
@@ -760,24 +760,24 @@ const decryptImportedPrivateKey = async (
     }
     return normalizedPrivateKey
   } catch {
-    throw toRpcError(-32603, 'Unable to decrypt account private key.')
+    throw toRpcError(-32603, '无法解密账户私钥。')
   }
 }
 
 const getSelectedAccountWallet = async (): Promise<Wallet> => {
   const account = await getSelectedStoredAccount()
   if (!account) {
-    throw toRpcError(-32000, 'No account selected in wallet.')
+    throw toRpcError(-32000, '钱包中未选择账户。')
   }
   const sessionSecretHex = await getWalletSessionSecretHex()
   if (!sessionSecretHex) {
-    throw toRpcError(4100, 'Wallet session expired. Please unlock LumiWallet again.')
+    throw toRpcError(4100, '钱包会话已过期，请重新解锁 LumiWallet。')
   }
 
   const privateKeyHex = await decryptImportedPrivateKey(account, sessionSecretHex)
   const wallet = new Wallet(`0x${privateKeyHex}`, rpcProvider)
   if (normalizeAddress(wallet.address) !== normalizeAddress(account.address)) {
-    throw toRpcError(-32603, 'Account private key does not match selected address.')
+    throw toRpcError(-32603, '账户私钥与当前地址不匹配。')
   }
   return wallet
 }
@@ -808,12 +808,12 @@ type ParsedTypedDataPayload = {
 
 const parsePersonalSignPayload = (params: unknown): PersonalSignPayload => {
   if (!Array.isArray(params) || params.length < 2) {
-    throw toRpcError(-32602, 'Invalid personal_sign params.')
+    throw toRpcError(-32602, 'personal_sign 参数无效。')
   }
   const first = params[0]
   const second = params[1]
   if (typeof first !== 'string' || typeof second !== 'string') {
-    throw toRpcError(-32602, 'Invalid personal_sign params.')
+    throw toRpcError(-32602, 'personal_sign 参数无效。')
   }
 
   const secondAsAddress = tryNormalizeAddress(second)
@@ -822,7 +822,7 @@ const parsePersonalSignPayload = (params: unknown): PersonalSignPayload => {
     try {
       message = isHexString(first) ? getBytes(first) : first
     } catch {
-      throw toRpcError(-32602, 'Invalid personal_sign params.')
+      throw toRpcError(-32602, 'personal_sign 参数无效。')
     }
     return {
       address: secondAsAddress,
@@ -836,7 +836,7 @@ const parsePersonalSignPayload = (params: unknown): PersonalSignPayload => {
     try {
       message = isHexString(second) ? getBytes(second) : second
     } catch {
-      throw toRpcError(-32602, 'Invalid personal_sign params.')
+      throw toRpcError(-32602, 'personal_sign 参数无效。')
     }
     return {
       address: firstAsAddress,
@@ -844,12 +844,12 @@ const parsePersonalSignPayload = (params: unknown): PersonalSignPayload => {
     }
   }
 
-  throw toRpcError(-32602, 'Invalid personal_sign params.')
+  throw toRpcError(-32602, 'personal_sign 参数无效。')
 }
 
 const parseTypedDataDomain = (value: unknown): TypedDataDomain => {
   if (!isRecord(value)) {
-    throw toRpcError(-32602, 'Invalid typed data domain.')
+    throw toRpcError(-32602, 'TypedData domain 无效。')
   }
   const domain: TypedDataDomain = {}
   if (typeof value.name === 'string') {
@@ -865,7 +865,7 @@ const parseTypedDataDomain = (value: unknown): TypedDataDomain => {
     try {
       domain.verifyingContract = getAddress(value.verifyingContract)
     } catch {
-      throw toRpcError(-32602, 'Invalid typed data domain.')
+      throw toRpcError(-32602, 'TypedData domain 无效。')
     }
   }
   if (typeof value.salt === 'string') {
@@ -876,17 +876,17 @@ const parseTypedDataDomain = (value: unknown): TypedDataDomain => {
 
 const parseTypedDataTypes = (value: unknown): Record<string, Array<TypedDataField>> => {
   if (!isRecord(value)) {
-    throw toRpcError(-32602, 'Invalid typed data types.')
+    throw toRpcError(-32602, 'TypedData types 无效。')
   }
   const types: Record<string, Array<TypedDataField>> = {}
   for (const [typeName, fields] of Object.entries(value)) {
     if (!Array.isArray(fields)) {
-      throw toRpcError(-32602, 'Invalid typed data types.')
+      throw toRpcError(-32602, 'TypedData types 无效。')
     }
     const nextFields: TypedDataField[] = []
     for (const field of fields) {
       if (!isRecord(field) || typeof field.name !== 'string' || typeof field.type !== 'string') {
-        throw toRpcError(-32602, 'Invalid typed data types.')
+        throw toRpcError(-32602, 'TypedData types 无效。')
       }
       nextFields.push({
         name: field.name,
@@ -897,14 +897,14 @@ const parseTypedDataTypes = (value: unknown): Record<string, Array<TypedDataFiel
   }
   delete types.EIP712Domain
   if (Object.keys(types).length === 0) {
-    throw toRpcError(-32602, 'Invalid typed data types.')
+    throw toRpcError(-32602, 'TypedData types 无效。')
   }
   return types
 }
 
 const parseTypedDataPayloadInput = (value: unknown): ParsedTypedDataPayload => {
   if (!Array.isArray(value) || value.length < 2) {
-    throw toRpcError(-32602, 'Invalid typed data sign params.')
+    throw toRpcError(-32602, 'TypedData 签名参数无效。')
   }
 
   const first = value[0]
@@ -927,7 +927,7 @@ const parseTypedDataPayloadInput = (value: unknown): ParsedTypedDataPayload => {
     normalizedAddress = tryNormalizeAddress(second)
   }
   if (!normalizedAddress) {
-    throw toRpcError(-32602, 'Invalid typed data sign params.')
+    throw toRpcError(-32602, 'TypedData 签名参数无效。')
   }
 
   let parsedTypedData: unknown = typedDataRaw
@@ -935,14 +935,14 @@ const parseTypedDataPayloadInput = (value: unknown): ParsedTypedDataPayload => {
     try {
       parsedTypedData = JSON.parse(parsedTypedData) as unknown
     } catch {
-      throw toRpcError(-32602, 'Invalid typed data payload.')
+      throw toRpcError(-32602, 'TypedData 负载无效。')
     }
   }
   if (!isRecord(parsedTypedData)) {
-    throw toRpcError(-32602, 'Invalid typed data payload.')
+    throw toRpcError(-32602, 'TypedData 负载无效。')
   }
   if (!isRecord(parsedTypedData.message)) {
-    throw toRpcError(-32602, 'Invalid typed data payload.')
+    throw toRpcError(-32602, 'TypedData 负载无效。')
   }
 
   return {
@@ -955,20 +955,20 @@ const parseTypedDataPayloadInput = (value: unknown): ParsedTypedDataPayload => {
 
 const parseSendTransactionRequest = (params: unknown, selectedAddress: string): TransactionRequest => {
   if (!Array.isArray(params) || params.length === 0 || !isRecord(params[0])) {
-    throw toRpcError(-32602, 'Invalid eth_sendTransaction params.')
+    throw toRpcError(-32602, 'eth_sendTransaction 参数无效。')
   }
   const tx = params[0]
   if (typeof tx.from !== 'string') {
-    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: from is required.')
+    throw toRpcError(-32602, 'eth_sendTransaction 参数无效：必须提供 from。')
   }
   let normalizedFrom: string
   try {
     normalizedFrom = normalizeAddress(tx.from)
   } catch {
-    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: invalid from address.')
+    throw toRpcError(-32602, 'eth_sendTransaction 参数无效：from 地址无效。')
   }
   if (normalizedFrom !== selectedAddress) {
-    throw toRpcError(4100, 'Requested from account does not match active wallet account.')
+    throw toRpcError(4100, '请求的 from 账户与当前钱包账户不匹配。')
   }
 
   const request: TransactionRequest = {
@@ -979,10 +979,10 @@ const parseSendTransactionRequest = (params: unknown, selectedAddress: string): 
     try {
       request.to = getAddress(tx.to)
     } catch {
-      throw toRpcError(-32602, 'Invalid eth_sendTransaction params: invalid to address.')
+      throw toRpcError(-32602, 'eth_sendTransaction 参数无效：to 地址无效。')
     }
   } else if (typeof tx.to !== 'undefined' && tx.to !== null) {
-    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: invalid to address.')
+    throw toRpcError(-32602, 'eth_sendTransaction 参数无效：to 地址无效。')
   }
 
   if (typeof tx.value !== 'undefined') {
@@ -990,7 +990,7 @@ const parseSendTransactionRequest = (params: unknown, selectedAddress: string): 
   }
   if (typeof tx.data !== 'undefined') {
     if (typeof tx.data !== 'string' || !isHexString(tx.data)) {
-      throw toRpcError(-32602, 'Invalid eth_sendTransaction params: data must be hex.')
+      throw toRpcError(-32602, 'eth_sendTransaction 参数无效：data 必须是十六进制。')
     }
     request.data = tx.data
   }
@@ -1013,13 +1013,13 @@ const parseSendTransactionRequest = (params: unknown, selectedAddress: string): 
     const chainId = parseChainId(tx.chainId)
     const expectedChainId = BigInt(DEFAULT_EXTENSION_NETWORK.chainIdDecimal)
     if (chainId !== expectedChainId) {
-      throw toRpcError(4901, 'Unsupported chainId in eth_sendTransaction.')
+      throw toRpcError(4901, 'eth_sendTransaction 中包含不支持的 chainId。')
     }
     request.chainId = Number(expectedChainId)
   }
 
   if (!request.to && !request.data) {
-    throw toRpcError(-32602, 'Invalid eth_sendTransaction params: missing to or data.')
+    throw toRpcError(-32602, 'eth_sendTransaction 参数无效：缺少 to 或 data。')
   }
   return request
 }
@@ -1223,7 +1223,7 @@ const requestUserApproval = async (
     return approved
   } catch {
     clearApprovalWaiter(approvalId)
-    throw toRpcError(-32603, 'Failed to open approval window.')
+    throw toRpcError(-32603, '打开授权窗口失败。')
   } finally {
     await removePendingApproval(approvalId)
   }
@@ -1238,14 +1238,14 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
     const normalizedOrigin = getValidatedOrigin(message.origin)
     const selectedAddress = await getSelectedAddress()
     if (!selectedAddress) {
-      throw toRpcError(-32000, 'No account selected in wallet.')
+      throw toRpcError(-32000, '钱包中未选择账户。')
     }
 
     const isAuthorized = await isOriginAuthorized(normalizedOrigin)
     if (!isAuthorized) {
       const approved = await requestUserApproval(normalizedOrigin, method)
       if (!approved) {
-        throw toRpcError(4001, 'User rejected site connection.')
+        throw toRpcError(4001, '用户拒绝了站点连接。')
       }
       await authorizeOrigin(normalizedOrigin)
     }
@@ -1273,12 +1273,12 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
 
     const selectedAddress = await getSelectedAddress()
     if (!selectedAddress) {
-      throw toRpcError(-32000, 'No account selected in wallet.')
+      throw toRpcError(-32000, '钱包中未选择账户。')
     }
 
     const payload = parsePersonalSignPayload(message.payload.params)
     if (payload.address !== normalizeAddress(selectedAddress)) {
-      throw toRpcError(4100, 'Requested account does not match active wallet account.')
+      throw toRpcError(4100, '请求账户与当前钱包账户不匹配。')
     }
 
     const wallet = await getSelectedAccountWallet()
@@ -1298,12 +1298,12 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
 
     const selectedAddress = await getSelectedAddress()
     if (!selectedAddress) {
-      throw toRpcError(-32000, 'No account selected in wallet.')
+      throw toRpcError(-32000, '钱包中未选择账户。')
     }
 
     const payload = parseTypedDataPayloadInput(message.payload.params)
     if (payload.address !== normalizeAddress(selectedAddress)) {
-      throw toRpcError(4100, 'Requested account does not match active wallet account.')
+      throw toRpcError(4100, '请求账户与当前钱包账户不匹配。')
     }
 
     const wallet = await getSelectedAccountWallet()
@@ -1319,7 +1319,7 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
 
     const selectedAddress = await getSelectedAddress()
     if (!selectedAddress) {
-      throw toRpcError(-32000, 'No account selected in wallet.')
+      throw toRpcError(-32000, '钱包中未选择账户。')
     }
     const normalizedSelectedAddress = normalizeAddress(selectedAddress)
     const txRequest = parseSendTransactionRequest(message.payload.params, normalizedSelectedAddress)
@@ -1340,17 +1340,17 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
     await assertUnlocked()
 
     if (!parseWalletPermissionRequest(message.payload.params)) {
-      throw toRpcError(-32602, 'Invalid wallet permission request.')
+      throw toRpcError(-32602, '无效的钱包权限请求。')
     }
     const normalizedOrigin = getValidatedOrigin(message.origin)
     const selectedAddress = await getSelectedAddress()
     if (!selectedAddress) {
-      throw toRpcError(-32000, 'No account selected in wallet.')
+      throw toRpcError(-32000, '钱包中未选择账户。')
     }
 
     const approved = await requestUserApproval(normalizedOrigin, method)
     if (!approved) {
-      throw toRpcError(4001, 'User rejected permission request.')
+      throw toRpcError(4001, '用户拒绝了权限请求。')
     }
     await authorizeOrigin(normalizedOrigin)
 
@@ -1380,7 +1380,7 @@ const handleRpcRequest = async (message: RpcRequestMessage): Promise<unknown> =>
     return permissions
   }
 
-  throw toRpcError(-32601, `Unsupported method: ${method}`)
+  throw toRpcError(-32601, `不支持的方法：${method}`)
 }
 
 const handleApprovalGetRequest = async (
@@ -1388,7 +1388,7 @@ const handleApprovalGetRequest = async (
 ): Promise<PendingApprovalRecord & { selectedAddress: string | null }> => {
   const approval = await getPendingApprovalById(message.approvalId)
   if (!approval) {
-    throw toRpcError(-32000, 'Approval request not found.')
+    throw toRpcError(-32000, '未找到授权请求。')
   }
 
   const selectedAddress = await getSelectedAddress()
@@ -1401,13 +1401,13 @@ const handleApprovalGetRequest = async (
 const handleApprovalDecisionRequest = async (message: ApprovalDecideRequestMessage): Promise<void> => {
   const approval = await getPendingApprovalById(message.approvalId)
   if (!approval) {
-    throw toRpcError(-32000, 'Approval request not found.')
+    throw toRpcError(-32000, '未找到授权请求。')
   }
 
   const settled = settleApprovalDecision(message.approvalId, message.approved)
   await removePendingApproval(message.approvalId)
   if (!settled) {
-    throw toRpcError(-32000, 'Approval request is no longer active.')
+    throw toRpcError(-32000, '授权请求已失效。')
   }
 }
 
@@ -1415,7 +1415,7 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('LumiWallet background ready')
   if (chrome.sidePanel?.setPanelBehavior) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error: any) => {
-      console.warn('Failed to set panel behavior', error)
+      console.warn('设置侧栏行为失败', error)
     })
   }
 })
@@ -1436,7 +1436,7 @@ chrome.runtime.onMessage.addListener(
             result
           })
         } catch (error) {
-          const fallback = toRpcError(-32603, 'Internal RPC error.')
+          const fallback = toRpcError(-32603, '内部 RPC 错误。')
           if (isRecord(error) && typeof error.code === 'number' && typeof error.message === 'string') {
             await recordInteractionLog(rawMessage, 'error', {
               code: error.code,
@@ -1475,7 +1475,7 @@ chrome.runtime.onMessage.addListener(
             request
           })
         } catch (error) {
-          const fallback = toRpcError(-32603, 'Failed to load approval request.')
+          const fallback = toRpcError(-32603, '加载授权请求失败。')
           if (isRecord(error) && typeof error.code === 'number' && typeof error.message === 'string') {
             sendResponse({
               ok: false,
@@ -1502,7 +1502,7 @@ chrome.runtime.onMessage.addListener(
           await handleApprovalDecisionRequest(rawMessage)
           sendResponse({ ok: true })
         } catch (error) {
-          const fallback = toRpcError(-32603, 'Failed to submit approval decision.')
+          const fallback = toRpcError(-32603, '提交授权决定失败。')
           if (isRecord(error) && typeof error.code === 'number' && typeof error.message === 'string') {
             sendResponse({
               ok: false,

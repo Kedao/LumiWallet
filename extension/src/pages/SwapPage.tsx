@@ -154,7 +154,7 @@ const SwapPage = () => {
         if (quoteErr instanceof Error) {
           setQuoteError(quoteErr.message)
         } else {
-          setQuoteError('Unable to estimate swap output.')
+          setQuoteError('无法估算兑换输出。')
         }
       } finally {
         if (quoteRequestIdRef.current === requestId) {
@@ -243,19 +243,19 @@ const SwapPage = () => {
     setTxHash('')
 
     if (parsedPayAmount === null) {
-      setError('Please enter a valid input amount.')
+      setError('请输入有效的输入金额。')
       return
     }
     if (!quote) {
-      setError('Unable to estimate swap output.')
+      setError('无法估算兑换输出。')
       return
     }
     if (expectedReceiveToken !== receiveToken) {
-      setError('Quote is outdated. Please try again.')
+      setError('报价已过期，请重试。')
       return
     }
     if (isInsufficientBalance) {
-      setError(`Insufficient ${payToken} balance.`)
+      setError(`${payToken} 余额不足。`)
       return
     }
 
@@ -274,13 +274,13 @@ const SwapPage = () => {
           const nextBalance = await fetchBalance()
           setBalance(nextBalance)
         } catch (balanceError) {
-          console.warn('Failed to refresh balance after swap', balanceError)
+          console.warn('兑换后刷新余额失败', balanceError)
         }
       } catch (swapError) {
         if (swapError instanceof Error) {
           setError(swapError.message)
         } else {
-          setError('Swap failed.')
+          setError('兑换失败。')
         }
       } finally {
         setIsSubmitting(false)
@@ -332,7 +332,7 @@ const SwapPage = () => {
       setPendingRiskQuoteKey('')
       setSwapCooldownSeconds(0)
       setSlippageRiskWarning(
-        riskError instanceof Error ? riskError.message : 'Failed to analyze slippage risk.'
+        riskError instanceof Error ? riskError.message : '滑点风险分析失败。'
       )
     } finally {
       if (riskReviewRequestIdRef.current === reviewRequestId) {
@@ -357,7 +357,7 @@ const SwapPage = () => {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, fontWeight: 800 }}>
-          You receive
+          你将收到
         </span>
         <TokenIcon symbol={receiveToken} size={18} background="#edf8f3" borderColor="#bde7d1" />
         <select
@@ -413,11 +413,11 @@ const SwapPage = () => {
             }}
           >
             <span style={{ fontSize: 12, fontWeight: 600 }}>
-              {`You pay (${payToken})`}
+              {`你将支付 (${payToken})`}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input
-                aria-label={`Amount to pay in ${payToken}`}
+                aria-label={`支付金额（${payToken}）`}
                 value={payAmount}
                 onChange={(event) => {
                   setPayAmount(event.target.value)
@@ -445,7 +445,7 @@ const SwapPage = () => {
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Available</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>可用</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               <TokenIcon symbol={payToken} size={14} background="#f6f8fb" />
               <span>{formatDisplayAmount(payBalance)} {payToken}</span>
@@ -464,7 +464,7 @@ const SwapPage = () => {
             minWidth: 0
           }}
         >
-          <div style={{ fontSize: 11, color: '#2a6f4f', fontWeight: 700 }}>You receive (estimated)</div>
+          <div style={{ fontSize: 11, color: '#2a6f4f', fontWeight: 700 }}>预计可收到</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: '#194d36' }}>
               {quote ? formatDisplayAmount(expectedReceiveAmount) : '--'}
@@ -487,7 +487,7 @@ const SwapPage = () => {
               borderRadius: 10
             }}
           >
-            Estimating output amount...
+            正在估算输出金额...
           </div>
         ) : null}
         {isAmountInvalid ? (
@@ -501,7 +501,7 @@ const SwapPage = () => {
               borderRadius: 10
             }}
           >
-            Please enter a valid pay amount.
+            请输入有效的支付金额。
           </div>
         ) : null}
         {quoteError ? (
@@ -533,7 +533,7 @@ const SwapPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            Slippage risk analysis unavailable: {slippageRiskWarning}
+            滑点风险分析不可用：{slippageRiskWarning}
           </div>
         ) : null}
         {isInsufficientBalance ? (
@@ -547,7 +547,7 @@ const SwapPage = () => {
               borderRadius: 10
             }}
           >
-            Insufficient {payToken} balance.
+            {payToken} 余额不足。
           </div>
         ) : null}
         {error ? (
@@ -579,7 +579,7 @@ const SwapPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            <div>Swap submitted. Tx:</div>
+            <div>兑换已提交，交易哈希：</div>
             <div style={{ marginTop: 2 }}>
               <HashText value={txHash} mode="wrap" fontSize={11} color="#1f5e41" />
             </div>
@@ -603,14 +603,14 @@ const SwapPage = () => {
           }}
         >
           {isAnalyzingSlippageRisk
-            ? 'Analyzing Slippage...'
+            ? '正在分析滑点...'
             : isSubmitting
-              ? 'Swapping...'
+              ? '兑换中...'
               : isPendingCurrentRiskConfirmation
                 ? isSwapCooldownActive
-                  ? `Confirm Swap (${swapCooldownSeconds}s)`
-                  : 'Confirm and Swap'
-                : 'Swap'}
+                  ? `确认兑换 (${swapCooldownSeconds}s)`
+                  : '确认并兑换'
+                : '兑换'}
         </button>
       </form>
     </section>
