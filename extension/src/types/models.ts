@@ -24,8 +24,11 @@ export type TransactionType = 'transfer' | 'contract' | 'dex'
 export interface TransactionRecord {
   id: string
   type: TransactionType
+  direction?: 'in' | 'out' | 'self'
   timestamp: number
   amount: string
+  tokenSymbol?: string
+  methodSig?: string
   status: 'pending' | 'success' | 'failed'
   to?: string
   contract?: string

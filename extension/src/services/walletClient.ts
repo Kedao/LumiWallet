@@ -104,6 +104,8 @@ export interface SwapQuote {
 export interface SwapSlippagePoolRiskStats {
   poolAddress: string
   priceImpactPct: number | null
+  poolTokenPayAmount: string | null
+  poolTokenGetAmount: string | null
 }
 
 export interface LocalActivityInput {
@@ -409,12 +411,12 @@ const toStoredActivityItem = (
 ): StoredActivityItemV1 => {
   const normalizedAmount = input.amount.trim()
   if (!normalizedAmount) {
-    throw new Error('Activity amount is required.')
+    throw new Error('交易金额不能为空。')
   }
 
   const txHash = input.hash.trim()
   if (!isTxHash(txHash)) {
-    throw new Error('Invalid transaction hash.')
+    throw new Error('无效的交易哈希。')
   }
 
   const timestamp = Date.now()
@@ -683,7 +685,15 @@ const validateAddress = (address: string): string => {
   try {
     return normalizeAddress(getAddress(address.trim()))
   } catch {
-    throw new Error('Invalid address format.')
+    throw new Error('地址格式无效。')
+  }
+}
+
+const validateAddressIgnoreChecksum = (address: string): string => {
+  try {
+    return normalizeAddress(getAddress(address.trim().toLowerCase()))
+  } catch {
+    throw new Error('地址格式无效。')
   }
 }
 
@@ -691,12 +701,12 @@ const validatePrivateKey = (privateKey: string): string => {
   const normalized = normalizePrivateKey(privateKey)
   const prefixed = `0x${normalized}`
   if (!isHexString(prefixed, PRIVATE_KEY_BYTES)) {
-    throw new Error('Invalid private key format.')
+    throw new Error('私钥格式无效。')
   }
   try {
     computeAddress(prefixed)
   } catch {
-    throw new Error('Invalid private key format.')
+    throw new Error('私钥格式无效。')
   }
   return normalized
 }
@@ -705,7 +715,7 @@ const deriveAddressFromPrivateKey = (privateKeyHex: string): string => {
   try {
     return normalizeAddress(getAddress(computeAddress(`0x${privateKeyHex}`)))
   } catch {
-    throw new Error('Invalid private key format.')
+    throw new Error('私钥格式无效。')
   }
 }
 
@@ -790,18 +800,18 @@ const decryptVaultPayload = async (
 
   const parsed = JSON.parse(textDecoder.decode(new Uint8Array(decrypted))) as unknown
   if (!isRecord(parsed) || typeof parsed.privateKeyHex !== 'string') {
-    throw new Error('Wallet vault payload is invalid.')
+    throw new Error('钱包金库数据无效。')
   }
 
   const privateKeyHex = normalizePrivateKey(parsed.privateKeyHex)
   const prefixed = `0x${privateKeyHex}`
   if (!isHexString(prefixed, PRIVATE_KEY_BYTES)) {
-    throw new Error('Wallet vault key is invalid.')
+    throw new Error('钱包金库密钥无效。')
   }
   try {
     computeAddress(prefixed)
   } catch {
-    throw new Error('Wallet vault key is invalid.')
+    throw new Error('钱包金库密钥无效。')
   }
 
   return { privateKeyHex }
@@ -834,7 +844,7 @@ const setStoredAccounts = async (payload: StoredAccountsV1): Promise<void> =>
 
 const deriveAccountEncryptionKey = async (): Promise<CryptoKey> => {
   if (!sessionSecretHex) {
-    throw new Error('Wallet is locked.')
+    throw new Error('钱包已锁定。')
   }
   const secretBytes = getBytes(`0x${sessionSecretHex}`)
   return crypto.subtle.importKey(
@@ -889,7 +899,7 @@ const getSelectedStoredAccount = async (): Promise<StoredImportedAccount | null>
 
 const decryptImportedPrivateKey = async (account: StoredImportedAccount): Promise<string> => {
   if (!sessionSecretHex) {
-    throw new Error('Wallet is locked.')
+    throw new Error('钱包已锁定。')
   }
 
   try {
@@ -904,20 +914,20 @@ const decryptImportedPrivateKey = async (account: StoredImportedAccount): Promis
     const decoded = textDecoder.decode(new Uint8Array(plaintext))
     return validatePrivateKey(decoded)
   } catch {
-    throw new Error('Unable to decrypt account private key.')
+    throw new Error('无法解密账户私钥。')
   }
 }
 
 const getSelectedAccountWallet = async (): Promise<{ account: StoredImportedAccount; wallet: Wallet }> => {
   const account = await getSelectedStoredAccount()
   if (!account) {
-    throw new Error('No account selected.')
+    throw new Error('未选择账户。')
   }
 
   const privateKeyHex = await decryptImportedPrivateKey(account)
   const wallet = new Wallet(`0x${privateKeyHex}`, provider)
   if (normalizeAddress(wallet.address) !== normalizeAddress(account.address)) {
-    throw new Error('Account private key does not match selected address.')
+    throw new Error('账户私钥与当前地址不匹配。')
   }
 
   return { account, wallet }
@@ -927,14 +937,14 @@ const parseMonAmount = (amount: string): bigint => {
   try {
     const parsed = parseEther(amount)
     if (parsed <= 0n) {
-      throw new Error('Amount must be greater than zero.')
+      throw new Error('金额必须大于 0。')
     }
     return parsed
   } catch (error) {
-    if (error instanceof Error && error.message === 'Amount must be greater than zero.') {
+    if (error instanceof Error && error.message === '金额必须大于 0。') {
       throw error
     }
-    throw new Error('Invalid amount format.')
+    throw new Error('金额格式无效。')
   }
 }
 
@@ -942,14 +952,14 @@ const parseErc20Amount = (amount: string, decimals: number): bigint => {
   try {
     const parsed = parseUnits(amount, decimals)
     if (parsed <= 0n) {
-      throw new Error('Amount must be greater than zero.')
+      throw new Error('金额必须大于 0。')
     }
     return parsed
   } catch (error) {
-    if (error instanceof Error && error.message === 'Amount must be greater than zero.') {
+    if (error instanceof Error && error.message === '金额必须大于 0。') {
       throw error
     }
-    throw new Error('Invalid amount format.')
+    throw new Error('金额格式无效。')
   }
 }
 
@@ -961,7 +971,7 @@ const normalizeSwapTargetToken = (token: string): SwapTargetToken => {
   if (normalized === 'EGOLD') {
     return 'eGold'
   }
-  throw new Error('Unsupported swap token.')
+  throw new Error('不支持的兑换代币。')
 }
 
 const getSwapOutputForExactInput = async (
@@ -989,10 +999,10 @@ const getSwapOutputForExactInput = async (
       ? await ammContract.getAmountOutMONToToken(inputAmountRaw) as bigint
       : await ammContract.getAmountOutTokenToMON(inputAmountRaw) as bigint
   } catch {
-    throw new Error('Unable to estimate swap output.')
+    throw new Error('无法估算兑换输出。')
   }
   if (expectedOutputRaw <= 0n) {
-    throw new Error('Swap output is too small.')
+    throw new Error('兑换输出过小。')
   }
 
   return {
@@ -1007,7 +1017,7 @@ const getSwapOutputForExactInput = async (
 
 const assertPasswordStrength = (password: string): void => {
   if (password.length < 8) {
-    throw new Error('Password must be at least 8 characters.')
+    throw new Error('密码至少需要 8 位。')
   }
 }
 
@@ -1021,7 +1031,7 @@ export const initializeWalletWithPassword = async (password: string): Promise<vo
 
   const initialized = await isWalletInitialized()
   if (initialized) {
-    throw new Error('Wallet is already initialized.')
+    throw new Error('钱包已初始化。')
   }
 
   const privateKeyHex = createPrivateKeyHex()
@@ -1041,7 +1051,7 @@ export const initializeWalletWithPassword = async (password: string): Promise<vo
 export const loginWithPassword = async (password: string): Promise<void> => {
   const auth = await getVaultV2()
   if (!auth) {
-    throw new Error('Wallet is not initialized yet.')
+    throw new Error('钱包尚未初始化。')
   }
 
   try {
@@ -1051,7 +1061,7 @@ export const loginWithPassword = async (password: string): Promise<void> => {
     await setWalletSessionUnlocked(true)
     await clearDappOriginPermissions()
   } catch {
-    throw new Error('Incorrect password.')
+    throw new Error('密码错误。')
   }
 }
 
@@ -1080,7 +1090,7 @@ export const importAccountWithPrivateKey = async (privateKey: string): Promise<A
 
   const stored = await getStoredAccounts()
   if (stored.accounts.some((item) => item.address === normalizedAddress)) {
-    throw new Error('This account is already imported.')
+    throw new Error('该账户已导入。')
   }
 
   const encryptedPrivateKey = await encryptImportedPrivateKey(normalizedPrivateKey)
@@ -1109,7 +1119,7 @@ export const selectImportedAccount = async (address: string): Promise<AccountSta
   const normalizedAddress = validateAddress(address)
   const stored = await getStoredAccounts()
   if (!stored.accounts.some((item) => item.address === normalizedAddress)) {
-    throw new Error('Account does not exist.')
+    throw new Error('账户不存在。')
   }
 
   const nextStored: StoredAccountsV1 = {
@@ -1124,7 +1134,7 @@ export const removeImportedAccount = async (address: string): Promise<AccountSta
   const normalizedAddress = validateAddress(address)
   const stored = await getStoredAccounts()
   if (!stored.accounts.some((item) => item.address === normalizedAddress)) {
-    throw new Error('Account does not exist.')
+    throw new Error('账户不存在。')
   }
 
   const remaining = stored.accounts.filter((item) => item.address !== normalizedAddress)
@@ -1183,7 +1193,7 @@ export const recordLocalActivity = async (
 ): Promise<TransactionRecord[]> => {
   const account = await getSelectedStoredAccount()
   if (!account) {
-    throw new Error('No account selected.')
+    throw new Error('未选择账户。')
   }
 
   const accountAddress = normalizeAddress(getAddress(account.address))
@@ -1205,9 +1215,40 @@ export const fetchHistory = async (): Promise<TransactionRecord[]> => {
     const summary = await fetchRecentAddressTransactionSummary(account.address, { limit: RECENT_ADDRESS_TX_LIMIT })
     return summary.records.map((item) => ({
       id: item.hash,
-      type: item.to && normalizeAddress(item.to) === AMM_CONTRACT_ADDRESS ? 'dex' : 'transfer',
+      type: (() => {
+        const methodSigLower = (item.methodSig ?? '').toLowerCase()
+        const isDex =
+          (item.to && normalizeAddress(item.to) === AMM_CONTRACT_ADDRESS) ||
+          methodSigLower.includes('swap')
+        const isApprove =
+          methodSigLower.includes('approve') ||
+          methodSigLower.startsWith(ERC20_APPROVE_METHOD_ID)
+        const hasContractCall = Boolean(item.methodSig && item.methodSig !== '0x')
+        const isTokenTransferMethod =
+          item.tokenAddress !== null &&
+          (
+            methodSigLower.includes('transfer') ||
+            methodSigLower.startsWith(ERC20_TRANSFER_METHOD_ID) ||
+            methodSigLower.startsWith(ERC20_TRANSFER_FROM_METHOD_ID)
+          )
+        if (isDex) {
+          return 'dex'
+        }
+        if (isApprove || (hasContractCall && !isTokenTransferMethod)) {
+          return 'contract'
+        }
+        return 'transfer'
+      })(),
+      direction: item.direction,
       timestamp: item.timestamp,
-      amount: `${item.value} MON`,
+      amount: (() => {
+        const isEGoldTransfer = item.tokenAddress === EGOLD_CONTRACT_ADDRESS
+        const rawAmount = isEGoldTransfer && item.phishingValue ? item.phishingValue : item.value
+        const tokenSymbol = isEGoldTransfer ? 'eGold' : 'MON'
+        return `${rawAmount} ${tokenSymbol}`
+      })(),
+      tokenSymbol: item.tokenAddress === EGOLD_CONTRACT_ADDRESS ? 'eGold' : 'MON',
+      methodSig: item.methodSig ?? undefined,
       status: 'success',
       to: item.to ?? undefined,
       hash: item.hash
@@ -1224,7 +1265,7 @@ export const fetchRecentAddressTransactionSummary = async (
   const normalizedAddress = validateAddress(address)
   const limit = Math.max(1, Math.min(options?.limit ?? RECENT_ADDRESS_TX_LIMIT, 25))
   if (!MONADSCAN_API_KEY) {
-    throw new Error('Missing VITE_MONADSCAN_API_KEY in .env.')
+    throw new Error('缺少 .env 中的 VITE_MONADSCAN_API_KEY。')
   }
   const query = new URLSearchParams({
     chainid: String(DEFAULT_EXTENSION_NETWORK.chainIdDecimal),
@@ -1238,12 +1279,12 @@ export const fetchRecentAddressTransactionSummary = async (
   })
   const response = await fetch(`${MONADSCAN_V2_API_BASE_URL}?${query.toString()}`)
   if (!response.ok) {
-    throw new Error('Failed to query Monadscan API.')
+    throw new Error('查询 Monadscan API 失败。')
   }
 
   const payload = await response.json() as unknown
   if (!isRecord(payload)) {
-    throw new Error('Unexpected Monadscan API response.')
+    throw new Error('Monadscan API 返回异常。')
   }
 
   const status = typeof payload.status === 'string' ? payload.status : ''
@@ -1262,7 +1303,7 @@ export const fetchRecentAddressTransactionSummary = async (
     }
   }
   if (!Array.isArray(result)) {
-    const errorHint = typeof result === 'string' && result.trim() ? result : 'Unexpected Monadscan API response.'
+    const errorHint = typeof result === 'string' && result.trim() ? result : 'Monadscan API 返回异常。'
     throw new Error(errorHint)
   }
 
@@ -1384,7 +1425,7 @@ const fetchMonadscanTxlistTimestamps = async (
 ): Promise<number | null> => {
   const normalizedAddress = validateAddress(address)
   if (!MONADSCAN_API_KEY) {
-    throw new Error('Missing VITE_MONADSCAN_API_KEY in .env.')
+    throw new Error('缺少 .env 中的 VITE_MONADSCAN_API_KEY。')
   }
 
   const query = new URLSearchParams({
@@ -1399,12 +1440,12 @@ const fetchMonadscanTxlistTimestamps = async (
   })
   const response = await fetch(`${MONADSCAN_V2_API_BASE_URL}?${query.toString()}`)
   if (!response.ok) {
-    throw new Error('Failed to query Monadscan API.')
+    throw new Error('查询 Monadscan API 失败。')
   }
 
   const payload = await response.json() as unknown
   if (!isRecord(payload)) {
-    throw new Error('Unexpected Monadscan API response.')
+    throw new Error('Monadscan API 返回异常。')
   }
 
   const status = typeof payload.status === 'string' ? payload.status : ''
@@ -1414,7 +1455,7 @@ const fetchMonadscanTxlistTimestamps = async (
     return null
   }
   if (!Array.isArray(result)) {
-    const errorHint = typeof result === 'string' && result.trim() ? result : 'Unexpected Monadscan API response.'
+    const errorHint = typeof result === 'string' && result.trim() ? result : 'Monadscan API 返回异常。'
     throw new Error(errorHint)
   }
 
@@ -1463,7 +1504,7 @@ export const fetchAddressLifecycleInfo = async (
 }
 
 export const sendTransfer = async (to: string, amount: string): Promise<string> => {
-  const normalizedTo = validateAddress(to)
+  const normalizedTo = validateAddressIgnoreChecksum(to)
   const value = parseMonAmount(amount)
   const { wallet } = await getSelectedAccountWallet()
   const tx = await wallet.sendTransaction({
@@ -1474,7 +1515,7 @@ export const sendTransfer = async (to: string, amount: string): Promise<string> 
 }
 
 export const sendErc20Transfer = async (to: string, amount: string): Promise<string> => {
-  const normalizedTo = validateAddress(to)
+  const normalizedTo = validateAddressIgnoreChecksum(to)
   const { wallet } = await getSelectedAccountWallet()
   const decimals = await eGoldContract.decimals() as number
   const value = parseErc20Amount(amount, decimals)
@@ -1498,13 +1539,13 @@ export const sendTokenTransfer = async (
   if (normalizedSymbol === 'EGOLD') {
     return sendErc20Transfer(to, amount)
   }
-  throw new Error('Unsupported token.')
+  throw new Error('不支持的代币。')
 }
 
 export const sendContractCall = async (contract: string, data: string): Promise<string> => {
   const normalizedContract = validateAddress(contract)
   if (!isHexString(data)) {
-    throw new Error('Invalid contract call data.')
+    throw new Error('合约调用数据无效。')
   }
 
   const { wallet } = await getSelectedAccountWallet()
@@ -1537,12 +1578,18 @@ export const fetchSwapSlippagePoolRiskStatsByInputAmount = async (
   const output = await getSwapOutputForExactInput(normalizedInput, inputAmount)
 
   let priceImpactPct: number | null = null
+  let poolTokenPayAmount: string | null = null
+  let poolTokenGetAmount: string | null = null
   try {
     const reserves = await ammContract.getReserves() as [bigint, bigint]
     const reserveMONRaw = reserves[0]
     const reserveEGoldRaw = reserves[1]
     const reserveInRaw = output.inputToken === 'MON' ? reserveMONRaw : reserveEGoldRaw
     const reserveOutRaw = output.inputToken === 'MON' ? reserveEGoldRaw : reserveMONRaw
+
+    poolTokenPayAmount = formatUnits(reserveInRaw, output.inputDecimals)
+    poolTokenGetAmount = formatUnits(reserveOutRaw, output.outputDecimals)
+
     if (reserveInRaw > 0n && reserveOutRaw > 0n) {
       const inputAmountFloat = Number(formatUnits(output.inputAmountRaw, output.inputDecimals))
       const reserveInFloat = Number(formatUnits(reserveInRaw, output.inputDecimals))
@@ -1569,11 +1616,15 @@ export const fetchSwapSlippagePoolRiskStatsByInputAmount = async (
     }
   } catch {
     priceImpactPct = null
+    poolTokenPayAmount = null
+    poolTokenGetAmount = null
   }
 
   return {
     poolAddress: AMM_CONTRACT_ADDRESS,
-    priceImpactPct
+    priceImpactPct,
+    poolTokenPayAmount,
+    poolTokenGetAmount
   }
 }
 
@@ -1590,7 +1641,7 @@ export const swapByInputAmount = async (
   if (output.inputToken === 'MON') {
     const monBalance = await provider.getBalance(wallet.address)
     if (monBalance < output.inputAmountRaw) {
-      throw new Error('Insufficient MON balance.')
+      throw new Error('MON 余额不足。')
     }
     const tx = await ammWithSigner.swapExactMONForTokens(
       wallet.address,
@@ -1603,7 +1654,7 @@ export const swapByInputAmount = async (
   const eGoldWithSigner = new Contract(EGOLD_CONTRACT_ADDRESS, ERC20_ABI, wallet)
   const eGoldBalance = await eGoldWithSigner.balanceOf(wallet.address) as bigint
   if (eGoldBalance < output.inputAmountRaw) {
-    throw new Error('Insufficient eGold balance.')
+    throw new Error('eGold 余额不足。')
   }
 
   const allowance = await eGoldWithSigner.allowance(wallet.address, AMM_CONTRACT_ADDRESS) as bigint

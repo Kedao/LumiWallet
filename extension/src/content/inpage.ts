@@ -148,11 +148,11 @@ class LumiEthereumProvider {
 
   request = async (args: ProviderRequestArgs): Promise<unknown> => {
     if (!CHANNEL_TOKEN) {
-      throw new ProviderRpcError(-32603, 'Provider channel token is missing.')
+      throw new ProviderRpcError(-32603, 'Provider 通道令牌缺失。')
     }
 
     if (!isRecord(args) || typeof args.method !== 'string' || args.method.trim().length === 0) {
-      throw new ProviderRpcError(-32600, 'Invalid request method.')
+      throw new ProviderRpcError(-32600, '无效的请求方法。')
     }
 
     const method = args.method.trim()
@@ -168,7 +168,7 @@ class LumiEthereumProvider {
         pendingRequest.reject(
           new ProviderRpcError(
             -32603,
-            `Provider request timed out after ${PROVIDER_REQUEST_TIMEOUT_MS}ms.`
+            `Provider 请求超时（${PROVIDER_REQUEST_TIMEOUT_MS}ms）。`
           )
         )
       }, PROVIDER_REQUEST_TIMEOUT_MS)
@@ -190,7 +190,7 @@ class LumiEthereumProvider {
         window.postMessage(message, '*')
       } catch {
         const pendingRequest = this.takePendingRequest(id)
-        pendingRequest?.reject(new ProviderRpcError(-32603, 'Failed to dispatch provider request.'))
+        pendingRequest?.reject(new ProviderRpcError(-32603, '分发 Provider 请求失败。'))
       }
     })
   }
@@ -257,7 +257,7 @@ class LumiEthereumProvider {
 
     if (!event.data.ok) {
       const code = event.data.error?.code ?? -32603
-      const message = event.data.error?.message ?? 'Unknown provider error.'
+      const message = event.data.error?.message ?? '未知 Provider 错误。'
       request.reject(new ProviderRpcError(code, message, event.data.error?.data))
       return
     }

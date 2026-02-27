@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
+import TokenIcon from '../components/TokenIcon'
 import {
   fetchBalance,
   fetchSwapSlippagePoolRiskStatsByInputAmount,
@@ -45,7 +46,7 @@ const getPayTokenByReceiveToken = (receiveToken: SwapTargetToken): SwapTargetTok
   receiveToken === 'MON' ? 'eGold' : 'MON'
 
 const normalizeRiskLabel = (
-  value: SlippageRiskResponse['exceed_slippage_probability_label']
+  value: SlippageRiskResponse['slippage_level'] | SlippageRiskResponse['exceed_slippage_probability_label'] | undefined
 ): 'high' | 'medium' | 'low' | 'unknown' => {
   if (value === 'high' || value === '高') {
     return 'high'
@@ -63,7 +64,7 @@ const getSlippageButtonBackground = (risk: SlippageRiskResponse | null): string 
   if (!risk) {
     return null
   }
-  const normalized = normalizeRiskLabel(risk.exceed_slippage_probability_label)
+  const normalized = normalizeRiskLabel(risk.slippage_level ?? risk.exceed_slippage_probability_label)
   if (normalized === 'high') {
     return '#d94b4b'
   }
@@ -86,10 +87,10 @@ const SwapPage = () => {
   const [slippageRiskWarning, setSlippageRiskWarning] = useState('')
   const [txHash, setTxHash] = useState('')
   const [isQuoting, setIsQuoting] = useState(false)
-  const [isReviewingSlippageRisk, setIsReviewingSlippageRisk] = useState(false)
+  const [isAnalyzingSlippageRisk, setIsAnalyzingSlippageRisk] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [slippageRisk, setSlippageRisk] = useState<SlippageRiskResponse | null>(null)
-  const [reviewedQuoteKey, setReviewedQuoteKey] = useState('')
+  const [pendingRiskQuoteKey, setPendingRiskQuoteKey] = useState('')
   const [swapCooldownSeconds, setSwapCooldownSeconds] = useState(0)
   const quoteRequestIdRef = useRef(0)
   const riskReviewRequestIdRef = useRef(0)
@@ -126,7 +127,7 @@ const SwapPage = () => {
     setQuoteError('')
     setSlippageRisk(null)
     setSlippageRiskWarning('')
-    setReviewedQuoteKey('')
+    setPendingRiskQuoteKey('')
     setSwapCooldownSeconds(0)
     riskReviewRequestIdRef.current += 1
     quoteRequestIdRef.current += 1
@@ -153,7 +154,7 @@ const SwapPage = () => {
         if (quoteErr instanceof Error) {
           setQuoteError(quoteErr.message)
         } else {
-          setQuoteError('Unable to estimate swap output.')
+          setQuoteError('无法估算兑换输出。')
         }
       } finally {
         if (quoteRequestIdRef.current === requestId) {
@@ -215,10 +216,14 @@ const SwapPage = () => {
   const currentQuoteKey = quote
     ? `${quote.inputToken}:${quote.outputToken}:${quote.inputAmount}:${quote.expectedOutputAmount}`
     : ''
-  const hasReviewedCurrentQuote = currentQuoteKey.length > 0 && reviewedQuoteKey === currentQuoteKey
-  const slippageRiskLevel = slippageRisk ? normalizeRiskLabel(slippageRisk.exceed_slippage_probability_label) : null
+  const isPendingCurrentRiskConfirmation = currentQuoteKey.length > 0 && pendingRiskQuoteKey === currentQuoteKey
+  const slippageRiskLevel = slippageRisk
+    ? normalizeRiskLabel(slippageRisk.slippage_level ?? slippageRisk.exceed_slippage_probability_label)
+    : null
   const isSwapCooldownActive =
-    hasReviewedCurrentQuote && swapCooldownSeconds > 0 && (slippageRiskLevel === 'high' || slippageRiskLevel === 'medium')
+    isPendingCurrentRiskConfirmation &&
+    swapCooldownSeconds > 0 &&
+    (slippageRiskLevel === 'high' || slippageRiskLevel === 'medium')
   const swapButtonBackground = getSlippageButtonBackground(slippageRisk)
   const canSubmitBase =
     Boolean(quote) &&
@@ -229,7 +234,7 @@ const SwapPage = () => {
     !isInsufficientBalance &&
     !isSubmitting &&
     expectedReceiveToken === receiveToken
-  const canSubmit = canSubmitBase && !isReviewingSlippageRisk && !isSwapCooldownActive
+  const canSubmit = canSubmitBase && !isAnalyzingSlippageRisk && !isSwapCooldownActive
 
   const handleSwap = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -238,96 +243,104 @@ const SwapPage = () => {
     setTxHash('')
 
     if (parsedPayAmount === null) {
-      setError('Please enter a valid input amount.')
+      setError('请输入有效的输入金额。')
       return
     }
     if (!quote) {
-      setError('Unable to estimate swap output.')
+      setError('无法估算兑换输出。')
       return
     }
     if (expectedReceiveToken !== receiveToken) {
-      setError('Quote is outdated. Please try again.')
+      setError('报价已过期，请重试。')
       return
     }
     if (isInsufficientBalance) {
-      setError(`Insufficient ${payToken} balance.`)
+      setError(`${payToken} 余额不足。`)
       return
     }
 
-    if (!hasReviewedCurrentQuote) {
-      const reviewRequestId = ++riskReviewRequestIdRef.current
-      setSlippageRisk(null)
-      setSwapCooldownSeconds(0)
-      setIsReviewingSlippageRisk(true)
+    const submitSwap = async () => {
+      setIsSubmitting(true)
       try {
-        const poolStats = await fetchSwapSlippagePoolRiskStatsByInputAmount(payToken, payAmount.trim())
-        const risk = await analyzeSlippageRisk({
-          pool_address: poolStats.poolAddress,
-          chain: 'monad',
-          token_in: payToken,
-          token_out: receiveToken,
-          amount_in: quote.inputAmount,
-          trade_type: 'exact_in',
-          interaction_type: 'swap',
-          pool: poolStats.priceImpactPct === null ? undefined : { price_impact_pct: poolStats.priceImpactPct },
-          extra_features: {
-            expected_output_amount: quote.expectedOutputAmount,
-            quote_input_amount: quote.inputAmount
-          }
-        })
-        if (riskReviewRequestIdRef.current !== reviewRequestId) {
-          return
-        }
-        setSlippageRisk(risk)
-        setSwapCooldownSeconds(
-          (() => {
-            const normalized = normalizeRiskLabel(risk.exceed_slippage_probability_label)
-            return normalized === 'high' || normalized === 'medium' ? 3 : 0
-          })()
-        )
-      } catch (riskError) {
-        if (riskReviewRequestIdRef.current !== reviewRequestId) {
-          return
-        }
+        const tx = await swapByInputAmount(payToken, payAmount.trim())
+        setTxHash(tx)
+        setPayAmount('')
+        setQuote(null)
+        setPendingRiskQuoteKey('')
         setSlippageRisk(null)
         setSwapCooldownSeconds(0)
-        setSlippageRiskWarning(
-          riskError instanceof Error ? riskError.message : 'Failed to analyze slippage risk.'
-        )
-      } finally {
-        if (riskReviewRequestIdRef.current === reviewRequestId) {
-          setReviewedQuoteKey(currentQuoteKey)
-          setIsReviewingSlippageRisk(false)
+
+        try {
+          const nextBalance = await fetchBalance()
+          setBalance(nextBalance)
+        } catch (balanceError) {
+          console.warn('兑换后刷新余额失败', balanceError)
         }
+      } catch (swapError) {
+        if (swapError instanceof Error) {
+          setError(swapError.message)
+        } else {
+          setError('兑换失败。')
+        }
+      } finally {
+        setIsSubmitting(false)
       }
+    }
+
+    if (isPendingCurrentRiskConfirmation) {
+      await submitSwap()
       return
     }
 
-    setIsSubmitting(true)
+    const reviewRequestId = ++riskReviewRequestIdRef.current
+    setPendingRiskQuoteKey('')
+    setSlippageRisk(null)
+    setSwapCooldownSeconds(0)
+    setIsAnalyzingSlippageRisk(true)
     try {
-      const tx = await swapByInputAmount(payToken, payAmount.trim())
-      setTxHash(tx)
-      setPayAmount('')
-      setQuote(null)
-      setReviewedQuoteKey('')
+      const poolStats = await fetchSwapSlippagePoolRiskStatsByInputAmount(payToken, payAmount.trim())
+      const risk = await analyzeSlippageRisk({
+        pool_address: poolStats.poolAddress,
+        chain: 'monad',
+        token_pay_amount: quote.inputAmount,
+        interaction_type: 'swap',
+        pool: {
+          price_impact_pct: poolStats.priceImpactPct ?? null,
+          token_pay_amount: poolStats.poolTokenPayAmount,
+          token_get_amount: poolStats.poolTokenGetAmount,
+          type: 'AMM'
+        }
+      })
+      if (riskReviewRequestIdRef.current !== reviewRequestId) {
+        return
+      }
+      const normalized = normalizeRiskLabel(risk.slippage_level ?? risk.exceed_slippage_probability_label)
+      if (normalized === 'high' || normalized === 'medium') {
+        setSlippageRisk(risk)
+        setPendingRiskQuoteKey(currentQuoteKey)
+        setSwapCooldownSeconds(3)
+        return
+      }
       setSlippageRisk(null)
+      setPendingRiskQuoteKey('')
       setSwapCooldownSeconds(0)
-
-      try {
-        const nextBalance = await fetchBalance()
-        setBalance(nextBalance)
-      } catch (balanceError) {
-        console.warn('Failed to refresh balance after swap', balanceError)
+    } catch (riskError) {
+      if (riskReviewRequestIdRef.current !== reviewRequestId) {
+        return
       }
-    } catch (swapError) {
-      if (swapError instanceof Error) {
-        setError(swapError.message)
-      } else {
-        setError('Swap failed.')
-      }
+      setSlippageRisk(null)
+      setPendingRiskQuoteKey('')
+      setSwapCooldownSeconds(0)
+      setSlippageRiskWarning(
+        riskError instanceof Error ? riskError.message : '滑点风险分析失败。'
+      )
     } finally {
-      setIsSubmitting(false)
+      if (riskReviewRequestIdRef.current === reviewRequestId) {
+        setIsAnalyzingSlippageRisk(false)
+      }
     }
+
+    await submitSwap()
   }
 
   return (
@@ -344,8 +357,9 @@ const SwapPage = () => {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, fontWeight: 800 }}>
-          You receive
+          你将收到
         </span>
+        <TokenIcon symbol={receiveToken} size={18} background="#edf8f3" borderColor="#bde7d1" />
         <select
           value={receiveToken}
           onChange={(event) => {
@@ -354,7 +368,7 @@ const SwapPage = () => {
             setTxHash('')
             setSlippageRisk(null)
             setSlippageRiskWarning('')
-            setReviewedQuoteKey('')
+            setPendingRiskQuoteKey('')
             setSwapCooldownSeconds(0)
             riskReviewRequestIdRef.current += 1
           }}
@@ -399,17 +413,17 @@ const SwapPage = () => {
             }}
           >
             <span style={{ fontSize: 12, fontWeight: 600 }}>
-              {`You pay (${payToken})`}
+              {`你将支付 (${payToken})`}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input
-                aria-label={`Amount to pay in ${payToken}`}
+                aria-label={`支付金额（${payToken}）`}
                 value={payAmount}
                 onChange={(event) => {
                   setPayAmount(event.target.value)
                   setSlippageRisk(null)
                   setSlippageRiskWarning('')
-                  setReviewedQuoteKey('')
+                  setPendingRiskQuoteKey('')
                   setSwapCooldownSeconds(0)
                   riskReviewRequestIdRef.current += 1
                 }}
@@ -424,14 +438,18 @@ const SwapPage = () => {
                   textAlign: 'right'
                 }}
               />
-              <span style={{ fontSize: 12, fontWeight: 700, minWidth: 44 }}>{payToken}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 64, justifyContent: 'flex-end' }}>
+                <TokenIcon symbol={payToken} size={16} background="#f6f8fb" />
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{payToken}</span>
+              </div>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Available</span>
-            <span style={{ fontSize: 12 }}>
-              {formatDisplayAmount(payBalance)} {payToken}
-            </span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>可用</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <TokenIcon symbol={payToken} size={14} background="#f6f8fb" />
+              <span>{formatDisplayAmount(payBalance)} {payToken}</span>
+            </div>
           </div>
         </section>
 
@@ -446,13 +464,14 @@ const SwapPage = () => {
             minWidth: 0
           }}
         >
-          <div style={{ fontSize: 11, color: '#2a6f4f', fontWeight: 700 }}>You receive (estimated)</div>
+          <div style={{ fontSize: 11, color: '#2a6f4f', fontWeight: 700 }}>预计可收到</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: '#194d36' }}>
               {quote ? formatDisplayAmount(expectedReceiveAmount) : '--'}
             </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#194d36' }}>
-              {receiveToken}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 800, color: '#194d36' }}>
+              <TokenIcon symbol={receiveToken} size={16} background="#eef9f4" borderColor="#9ad9bc" />
+              <span>{receiveToken}</span>
             </div>
           </div>
         </section>
@@ -468,7 +487,7 @@ const SwapPage = () => {
               borderRadius: 10
             }}
           >
-            Estimating output amount...
+            正在估算输出金额...
           </div>
         ) : null}
         {isAmountInvalid ? (
@@ -482,7 +501,7 @@ const SwapPage = () => {
               borderRadius: 10
             }}
           >
-            Please enter a valid pay amount.
+            请输入有效的支付金额。
           </div>
         ) : null}
         {quoteError ? (
@@ -514,7 +533,7 @@ const SwapPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            Slippage risk analysis unavailable: {slippageRiskWarning}
+            滑点风险分析不可用：{slippageRiskWarning}
           </div>
         ) : null}
         {isInsufficientBalance ? (
@@ -528,7 +547,7 @@ const SwapPage = () => {
               borderRadius: 10
             }}
           >
-            Insufficient {payToken} balance.
+            {payToken} 余额不足。
           </div>
         ) : null}
         {error ? (
@@ -560,7 +579,7 @@ const SwapPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            <div>Swap submitted. Tx:</div>
+            <div>兑换已提交，交易哈希：</div>
             <div style={{ marginTop: 2 }}>
               <HashText value={txHash} mode="wrap" fontSize={11} color="#1f5e41" />
             </div>
@@ -583,15 +602,15 @@ const SwapPage = () => {
             opacity: canSubmit ? 1 : 0.6
           }}
         >
-          {isReviewingSlippageRisk
-            ? 'Analyzing Slippage...'
+          {isAnalyzingSlippageRisk
+            ? '正在分析滑点...'
             : isSubmitting
-              ? 'Swapping...'
-              : hasReviewedCurrentQuote
+              ? '兑换中...'
+              : isPendingCurrentRiskConfirmation
                 ? isSwapCooldownActive
-                  ? `Swap Now (${swapCooldownSeconds}s)`
-                  : `Swap ${payToken} to ${receiveToken}`
-                : 'Review Slippage Risk'}
+                  ? `确认兑换 (${swapCooldownSeconds}s)`
+                  : '确认并兑换'
+                : '兑换'}
         </button>
       </form>
     </section>

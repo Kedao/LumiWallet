@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { parseUnits } from 'ethers'
+import { getAddress, parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
+import TokenIcon from '../components/TokenIcon'
 import {
-  fetchAddressLifecycleInfo,
   fetchBalance,
   fetchRecentAddressTransactionSummary,
   sendTokenTransfer
@@ -85,9 +85,9 @@ const SendPage = () => {
   const [error, setError] = useState('')
   const [historyWarning, setHistoryWarning] = useState('')
   const [txHash, setTxHash] = useState('')
-  const [isReviewingAddress, setIsReviewingAddress] = useState(false)
+  const [isAnalyzingRisk, setIsAnalyzingRisk] = useState(false)
   const [isSending, setIsSending] = useState(false)
-  const [reviewedAddress, setReviewedAddress] = useState('')
+  const [pendingRiskAddress, setPendingRiskAddress] = useState('')
   const [phishingRisk, setPhishingRisk] = useState<SecurityRiskResponse | null>(null)
   const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0)
 
@@ -167,15 +167,16 @@ const SendPage = () => {
   const isInsufficientBalance = parsedAmount !== null && parsedAmount > parsedAvailable
   const isAmountInvalid = amount.trim().length > 0 && parsedAmount === null
   const normalizedToAddress = toAddress.trim().toLowerCase()
-  const hasReviewedCurrentAddress = reviewedAddress.length > 0 && reviewedAddress === normalizedToAddress
+  const isPendingCurrentRiskConfirmation =
+    pendingRiskAddress.length > 0 && pendingRiskAddress === normalizedToAddress
   const riskAwareButtonBackground = getRiskAwareButtonBackground(phishingRisk)
   const normalizedRiskLevel = getNormalizedRiskLevel(phishingRisk)
   const isRiskCooldownActive =
-    hasReviewedCurrentAddress &&
+    isPendingCurrentRiskConfirmation &&
     sendCooldownSeconds > 0 &&
     (normalizedRiskLevel === 'high' || normalizedRiskLevel === 'medium')
   const isSubmitDisabled =
-    isReviewingAddress ||
+    isAnalyzingRisk ||
     isSending ||
     isRiskCooldownActive ||
     toAddress.trim().length === 0 ||
@@ -190,96 +191,112 @@ const SendPage = () => {
     const senderAddress = account?.address?.trim() ?? ''
 
     if (parsedAmount === null) {
-      setError('Please enter a valid amount.')
+      setError('请输入有效金额。')
       return
     }
     if (isInsufficientBalance) {
-      setError(`Insufficient ${token} balance.`)
+      setError(`${token} 余额不足。`)
       return
     }
 
-    if (!hasReviewedCurrentAddress) {
-      if (!senderAddress) {
-        setError('No active sender account.')
-        return
-      }
-      setPhishingRisk(null)
-      setSendCooldownSeconds(0)
-      setIsReviewingAddress(true)
+    const sendTransaction = async () => {
+      setIsSending(true)
       try {
-        const [senderSummary, receiverLifecycle] = await Promise.all([
-          fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 }),
-          fetchAddressLifecycleInfo(toAddress.trim())
-        ])
-        try {
-          const risk = await analyzePhishingRisk({
-            address: receiverLifecycle.address,
-            chain: 'monad',
-            interaction_type: 'transfer',
-            transactions: senderSummary.records.map((item) => ({
-              tx_hash: item.hash,
-              timestamp: Math.floor(item.timestamp / 1000),
-              from_address: item.from,
-              to_address: item.to,
-              value: item.phishingValue ?? item.value,
-              token_address: item.tokenAddress ?? null,
-              token_decimals: item.tokenDecimals ?? null,
-              tx_type: item.direction,
-              contract_address: item.contractAddress ?? null,
-              method_sig: item.methodSig ?? null,
-              success: item.success ?? null
-            })),
-            lifecycle: receiverLifecycle.lifecycle
-          })
-          setPhishingRisk(risk)
-          const riskLevel = getNormalizedRiskLevel(risk)
-          setSendCooldownSeconds(riskLevel === 'high' || riskLevel === 'medium' ? 3 : 0)
-          console.info('Phishing risk review result', risk)
-        } catch (riskError) {
-          setPhishingRisk(null)
-          setSendCooldownSeconds(0)
-          console.warn('Failed to analyze phishing risk', riskError)
-          setHistoryWarning('Address activity reviewed, but phishing risk analysis request failed.')
-        }
-        setReviewedAddress(normalizedToAddress)
-      } catch (reviewError) {
+        const hash = await sendTokenTransfer(token, toAddress.trim(), amount.trim())
+        setTxHash(hash)
+        setAmount('')
+        setPendingRiskAddress('')
         setPhishingRisk(null)
         setSendCooldownSeconds(0)
-        if (reviewError instanceof Error) {
-          setError(reviewError.message)
+
+        try {
+          const nextBalance = await fetchBalance()
+          setBalance(nextBalance)
+        } catch (balanceError) {
+          console.warn('发送后刷新余额失败', balanceError)
+        }
+      } catch (submitError) {
+        if (submitError instanceof Error) {
+          setError(submitError.message)
         } else {
-          setError('Failed to query recent transactions for this address.')
+          setError('发送交易失败。')
         }
       } finally {
-        setIsReviewingAddress(false)
+        setIsSending(false)
       }
+    }
+
+    if (isPendingCurrentRiskConfirmation) {
+      await sendTransaction()
       return
     }
 
-    setIsSending(true)
-    try {
-      const hash = await sendTokenTransfer(token, toAddress.trim(), amount.trim())
-      setTxHash(hash)
-      setAmount('')
-      setReviewedAddress('')
-      setPhishingRisk(null)
-      setSendCooldownSeconds(0)
-
-      try {
-        const nextBalance = await fetchBalance()
-        setBalance(nextBalance)
-      } catch (balanceError) {
-        console.warn('Failed to refresh balance after send', balanceError)
-      }
-    } catch (submitError) {
-      if (submitError instanceof Error) {
-        setError(submitError.message)
-      } else {
-        setError('Failed to send transaction.')
-      }
-    } finally {
-      setIsSending(false)
+    if (!senderAddress) {
+      setError('当前没有可用的发送账户。')
+      return
     }
+
+    setPendingRiskAddress('')
+    setPhishingRisk(null)
+    setSendCooldownSeconds(0)
+    setIsAnalyzingRisk(true)
+
+    try {
+      const receiverAddress = getAddress(toAddress.trim().toLowerCase())
+      const senderSummary = await fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 })
+      try {
+        const risk = await analyzePhishingRisk({
+          address: receiverAddress,
+          chain: 'monad',
+          transactions: senderSummary.records.map((item) => ({
+            tx_hash: item.hash,
+            timestamp: Math.floor(item.timestamp / 1000),
+            from_address: item.from,
+            to_address: item.to,
+            value: item.phishingValue ?? item.value,
+            token_address: item.tokenAddress ?? null,
+            token_decimals: item.tokenDecimals ?? null,
+            tx_type: item.direction,
+            contract_address: item.contractAddress ?? null,
+            method_sig: item.methodSig ?? null,
+            success: item.success ?? null
+          }))
+        })
+        const riskLevel = getNormalizedRiskLevel(risk)
+        console.info('钓鱼风险评估结果', risk)
+
+        if (riskLevel === 'high' || riskLevel === 'medium') {
+          setPhishingRisk(risk)
+          setPendingRiskAddress(normalizedToAddress)
+          setSendCooldownSeconds(3)
+          return
+        }
+
+        setPhishingRisk(null)
+        setPendingRiskAddress('')
+        setSendCooldownSeconds(0)
+      } catch (riskError) {
+        setPhishingRisk(null)
+        setPendingRiskAddress('')
+        setSendCooldownSeconds(0)
+        console.warn('钓鱼风险分析失败', riskError)
+        setHistoryWarning('钓鱼风险分析请求失败，将直接发送。')
+      }
+    } catch (reviewError) {
+      setPhishingRisk(null)
+      setPendingRiskAddress('')
+      setSendCooldownSeconds(0)
+      if (reviewError instanceof Error) {
+        setError(reviewError.message)
+      } else {
+        setError('查询该地址最近交易失败。')
+      }
+      return
+    } finally {
+      setIsAnalyzingRisk(false)
+    }
+
+    await sendTransaction()
   }
 
   return (
@@ -294,17 +311,22 @@ const SendPage = () => {
         minWidth: 0
       }}
     >
-      <h2 style={{ margin: 0 }}>Send Asset</h2>
+      <h2 style={{ margin: 0 }}>发送资产</h2>
 
       <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10, minWidth: 0 }}>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Token</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>代币</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+            <TokenIcon symbol={token} size={18} background="#f1f5fb" />
+            <span>当前选择：{token}</span>
+          </div>
           <select
             value={token}
             onChange={(event) => {
               setToken(event.target.value as TokenOption)
               setError('')
               setTxHash('')
+              setPendingRiskAddress('')
               setPhishingRisk(null)
               setSendCooldownSeconds(0)
             }}
@@ -327,14 +349,14 @@ const SendPage = () => {
         </label>
 
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>To Address</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>接收地址</span>
           <input
             value={toAddress}
             onChange={(event) => {
               setToAddress(event.target.value)
               setError('')
               setTxHash('')
-              setReviewedAddress('')
+              setPendingRiskAddress('')
               setPhishingRisk(null)
               setSendCooldownSeconds(0)
             }}
@@ -351,7 +373,7 @@ const SendPage = () => {
         </label>
 
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Amount ({token})</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>金额 ({token})</span>
           <input
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
@@ -367,8 +389,10 @@ const SendPage = () => {
           />
         </label>
 
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Available: {formatDisplayAmount(availableAmount)} {token}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+          <span>可用：</span>
+          <TokenIcon symbol={token} size={16} background="#f6f8fb" />
+          <span>{formatDisplayAmount(availableAmount)} {token}</span>
         </div>
 
         {isAmountInvalid ? (
@@ -384,7 +408,7 @@ const SendPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            Please enter a valid amount.
+            请输入有效金额。
           </div>
         ) : null}
         {isInsufficientBalance ? (
@@ -400,7 +424,7 @@ const SendPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            Insufficient {token} balance.
+            {token} 余额不足。
           </div>
         ) : null}
         {error ? (
@@ -448,7 +472,7 @@ const SendPage = () => {
               wordBreak: 'break-word'
             }}
           >
-            <div>Sent successfully. Tx:</div>
+            <div>发送成功，交易哈希：</div>
             <div style={{ marginTop: 2 }}>
               <HashText value={txHash} mode="wrap" fontSize={11} color="#1f5e41" />
             </div>
@@ -470,15 +494,15 @@ const SendPage = () => {
             opacity: isSubmitDisabled ? 0.6 : 1
           }}
         >
-          {isReviewingAddress
-            ? 'Checking Address Activity...'
+          {isAnalyzingRisk
+            ? '风险检查中...'
             : isSending
-              ? 'Sending...'
-              : hasReviewedCurrentAddress
+              ? '发送中...'
+              : isPendingCurrentRiskConfirmation
                 ? isRiskCooldownActive
-                  ? `Send Now (${sendCooldownSeconds}s)`
-                  : 'Send Now'
-                : 'Review Address Activity'}
+                  ? `确认发送 (${sendCooldownSeconds}s)`
+                  : '确认并发送'
+                : '发送'}
         </button>
       </form>
     </section>

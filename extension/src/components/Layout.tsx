@@ -1,7 +1,8 @@
-import { FormEvent, PropsWithChildren, useState } from 'react'
+import { FormEvent, PropsWithChildren, useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import HashText from './HashText'
 import { useWallet } from '../state/walletStore'
+import { DEFAULT_EXTENSION_NETWORK } from '../config/networks'
 
 const Layout = ({ children }: PropsWithChildren) => {
   const { account, accounts, isUnlocked, isAuthReady, switchAccount, importAccount, removeAccount } = useWallet()
@@ -12,6 +13,32 @@ const Layout = ({ children }: PropsWithChildren) => {
   const [isImporting, setIsImporting] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
   const [isRemoveConfirmOpen, setIsRemoveConfirmOpen] = useState(false)
+  const menuRootRef = useRef<HTMLDivElement | null>(null)
+  const showTabs = isAuthReady && isUnlocked && Boolean(account)
+  const activeAccountIndex = account ? accounts.findIndex((item) => item.address === account.address) + 1 : 0
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (!target || !menuRootRef.current) {
+        return
+      }
+      if (!menuRootRef.current.contains(target)) {
+        setIsMenuOpen(false)
+        setIsImportOpen(false)
+        setIsRemoveConfirmOpen(false)
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [isMenuOpen])
 
   const handleSwitchAccount = async (address: string) => {
     setMenuError('')
@@ -24,7 +51,7 @@ const Layout = ({ children }: PropsWithChildren) => {
       if (error instanceof Error) {
         setMenuError(error.message)
       } else {
-        setMenuError('Failed to switch account.')
+        setMenuError('切换账户失败。')
       }
     }
   }
@@ -42,7 +69,7 @@ const Layout = ({ children }: PropsWithChildren) => {
       if (error instanceof Error) {
         setMenuError(error.message)
       } else {
-        setMenuError('Failed to import account.')
+        setMenuError('导入账户失败。')
       }
     } finally {
       setIsImporting(false)
@@ -64,7 +91,7 @@ const Layout = ({ children }: PropsWithChildren) => {
       if (error instanceof Error) {
         setMenuError(error.message)
       } else {
-        setMenuError('Failed to remove account.')
+        setMenuError('移除账户失败。')
       }
     } finally {
       setIsRemoving(false)
@@ -77,20 +104,16 @@ const Layout = ({ children }: PropsWithChildren) => {
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          gap: 10,
           borderRadius: 16,
-          padding: '12px 16px',
+          padding: 10,
           background: 'var(--panel)',
           border: '1px solid var(--border)'
         }}
       >
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 600 }}>LumiWallet</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Monad Testnet</div>
-        </div>
         {isAuthReady && isUnlocked ? (
           accounts.length > 0 ? (
-            <div style={{ position: 'relative' }}>
+            <div ref={menuRootRef} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
               <button
                 onClick={() => {
                   setIsMenuOpen((value) => !value)
@@ -100,36 +123,58 @@ const Layout = ({ children }: PropsWithChildren) => {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8,
-                  borderRadius: 12,
-                  border: '1px solid var(--border)',
-                  background: '#fdfcf9',
-                  padding: '8px 12px',
+                  gap: 10,
+                  borderRadius: 13,
+                  border: isMenuOpen ? '1px solid #b9d0ca' : '1px solid #d9e2ea',
+                  background: isMenuOpen ? '#f2f8f6' : '#ffffff',
+                  padding: '9px 11px',
                   cursor: 'pointer',
-                  minWidth: 180,
-                  justifyContent: 'space-between'
+                  width: '100%',
+                  justifyContent: 'space-between',
+                  minWidth: 0
                 }}
+                aria-label="切换账户"
               >
-                <span style={{ textAlign: 'left' }}>
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: 700, lineHeight: 1.1 }}>
-                    {account?.label ?? 'Account'}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                  <span
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      background: '#e9f2fb',
+                      border: '1px solid #d5e3f1',
+                      color: '#355f9a',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flex: '0 0 auto'
+                    }}
+                  >
+                    {activeAccountIndex > 0 ? activeAccountIndex : 'A'}
                   </span>
-                  <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    {account ? (
-                      <HashText
-                        value={account.address}
-                        mode="compact"
-                        startChars={6}
-                        endChars={4}
-                        fontSize={11}
-                        color="var(--muted)"
-                      />
-                    ) : (
-                      ''
-                    )}
+                  <span style={{ textAlign: 'left', minWidth: 0, flex: 1 }}>
+                    <span style={{ display: 'block', fontSize: 12, fontWeight: 700, lineHeight: 1.1 }}>
+                      {account?.label ?? `账户 ${activeAccountIndex || ''}`}
+                    </span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {account ? (
+                        <HashText
+                          value={account.address}
+                          mode="compact"
+                          startChars={8}
+                          endChars={6}
+                          fontSize={11}
+                          color="var(--muted)"
+                        />
+                      ) : (
+                        ''
+                      )}
+                    </span>
                   </span>
                 </span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{isMenuOpen ? '▲' : '▼'}</span>
+                <span style={{ fontSize: 12, color: '#5f7388', flex: '0 0 auto' }}>{isMenuOpen ? '▲' : '▼'}</span>
               </button>
 
               {isMenuOpen ? (
@@ -149,7 +194,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                     zIndex: 10
                   }}
                 >
-                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Accounts</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>账户列表</div>
                   <div style={{ display: 'grid', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
                     {accounts.map((item) => {
                       const isActive = account?.address === item.address
@@ -173,7 +218,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                         >
                           <span>
                             <span style={{ display: 'block', fontSize: 12, fontWeight: 700 }}>
-                              {item.label ?? 'Account'}
+                              {item.label ?? '账户'}
                             </span>
                             <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>
                               <HashText
@@ -187,7 +232,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                             </span>
                           </span>
                           {isActive ? (
-                            <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700 }}>Selected</span>
+                            <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700 }}>当前</span>
                           ) : null}
                         </button>
                       )
@@ -216,7 +261,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                         textAlign: 'left'
                       }}
                     >
-                      {isImportOpen ? 'Cancel Import' : 'Import New Account'}
+                      {isImportOpen ? '取消导入' : '导入新账户'}
                     </button>
 
                     {!isImportOpen ? (
@@ -232,7 +277,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                           }}
                         >
                           <div style={{ fontSize: 12, color: '#8b2b2b' }}>
-                            此账户将从 Lumi 去除，请确保您拥有该账户的私钥。
+                            该账户将从灵光钱包移除，请确保已备份该账户私钥。
                           </div>
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button
@@ -249,7 +294,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                                 fontWeight: 600
                               }}
                             >
-                              Cancel
+                              取消
                             </button>
                             <button
                               onClick={() => {
@@ -268,7 +313,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                                 opacity: !account || isRemoving ? 0.7 : 1
                               }}
                             >
-                              {isRemoving ? 'Removing...' : 'Confirm Remove'}
+                              {isRemoving ? '移除中...' : '确认移除'}
                             </button>
                           </div>
                         </div>
@@ -291,7 +336,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                             opacity: !account ? 0.7 : 1
                           }}
                         >
-                          Remove Current Account
+                          移除当前账户
                         </button>
                       )
                     ) : null}
@@ -302,7 +347,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                           type="password"
                           value={privateKey}
                           onChange={(event) => setPrivateKey(event.target.value)}
-                          placeholder="Private key (0x...)"
+                          placeholder="私钥 (0x...)"
                           autoComplete="off"
                           autoCorrect="off"
                           autoCapitalize="off"
@@ -329,7 +374,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                             opacity: isImporting ? 0.8 : 1
                           }}
                         >
-                          {isImporting ? 'Importing...' : 'Confirm Import'}
+                          {isImporting ? '导入中...' : '确认导入'}
                         </button>
                       </form>
                     ) : null}
@@ -355,20 +400,55 @@ const Layout = ({ children }: PropsWithChildren) => {
           ) : (
             <button
               style={{
-                borderRadius: 999,
-                border: '1px solid var(--border)',
-                background: '#fdfcf9',
-                padding: '6px 12px',
-                cursor: 'default'
+                flex: 1,
+                borderRadius: 12,
+                border: '1px solid #d9e2ea',
+                background: '#ffffff',
+                padding: '9px 11px',
+                cursor: 'default',
+                textAlign: 'left',
+                color: 'var(--muted)'
               }}
             >
-              No Account
+              无账户
             </button>
           )
         ) : null}
+        <span
+          style={{
+            display: 'grid',
+            gap: 2,
+            borderRadius: 10,
+            border: '1px solid #d7e6f6',
+            background: '#f3f8ff',
+            color: '#4f6479',
+            fontSize: 11,
+            padding: '6px 9px',
+            minWidth: 96,
+            textAlign: 'left',
+            alignSelf: 'stretch',
+            justifyContent: 'center'
+          }}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#2f9d69',
+                flex: '0 0 auto'
+              }}
+            />
+            <span style={{ fontSize: 10, color: '#6a7f95', lineHeight: 1.1 }}>网络</span>
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#2f4d6b', lineHeight: 1.15 }}>
+            {DEFAULT_EXTENSION_NETWORK.name}
+          </span>
+        </span>
       </header>
 
-      {isAuthReady && isUnlocked && Boolean(account) ? (
+      {showTabs ? (
         <nav
           style={{
             display: 'grid',
@@ -377,9 +457,9 @@ const Layout = ({ children }: PropsWithChildren) => {
           }}
         >
           {[
-            { to: '/home', label: 'Home' },
-            { to: '/send', label: 'Send' },
-            { to: '/swap', label: 'Swap' }
+            { to: '/home', label: '首页' },
+            { to: '/send', label: '发送' },
+            { to: '/swap', label: '兑换' }
           ].map((item) => (
             <NavLink
               key={item.to}
@@ -388,12 +468,13 @@ const Layout = ({ children }: PropsWithChildren) => {
                 textDecoration: 'none',
                 textAlign: 'center',
                 padding: '10px 8px',
-                borderRadius: 12,
+                borderRadius: 11,
                 fontSize: 12,
-                fontWeight: 600,
-                color: isActive ? '#ffffff' : 'var(--ink)',
-                background: isActive ? 'var(--accent)' : 'var(--panel)',
-                border: '1px solid var(--border)'
+                fontWeight: isActive ? 800 : 700,
+                color: isActive ? '#ffffff' : '#38516b',
+                background: isActive ? 'linear-gradient(135deg, #2f88c8, #1f8aa6)' : '#f1f5fb',
+                border: isActive ? '1px solid #2a7cb4' : '1px solid #c6d4e4',
+                boxShadow: isActive ? '0 6px 14px rgba(41, 124, 176, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28)' : 'none'
               })}
             >
               {item.label}

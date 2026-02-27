@@ -14,12 +14,14 @@ PHISHING_SYSTEM_PROMPT_ZH = (
     "你是加密钱包后端的钓鱼风险分析助手。"
     "请根据已计算好的地址相似度上下文完成风险总结。"
     "你只能输出 risk_level、summary、confidence 三个字段。"
+    "summary 必须简洁清晰，聚焦风险结论。"
     "请使用中文输出（risk_level 使用 高/中/低/未知）。"
 )
 
 PHISHING_SYSTEM_PROMPT_EN = (
     "You are a phishing-risk analyst for a crypto wallet backend. "
     "Use the precomputed address-similarity context to produce a risk summary. "
+    "summary must be concise and focused on the core risk conclusion. "
     "You must return only risk_level, summary, confidence in English."
 )
 
@@ -183,6 +185,7 @@ class PhishingRiskAgent(RiskTaskAgent):
             f"- most_similar_similarity={similarity_context.get('most_similar_similarity')}\n"
             "Rules:\n"
             "- Return only risk_level, summary, confidence.\n"
+            "- summary must be concise and focused on the core risk conclusion.\n"
             "- max_similarity >= 0.90 is a strong phishing signal.\n"
             "- 0.80 ~ 0.90 indicates medium-high risk.\n"
             "- If no similar address is found, lower confidence and explain uncertainty.\n\n"
@@ -209,6 +212,7 @@ class PhishingRiskAgent(RiskTaskAgent):
             f"- most_similar_similarity={similarity_context.get('most_similar_similarity')}\n"
             "规则:\n"
             "- 只能输出 risk_level、summary、confidence 三个字段。\n"
+            "- summary 必须简洁明了，聚焦核心风险结论。\n"
             "- max_similarity >= 0.90 视为强钓鱼风险信号。\n"
             "- 0.80 ~ 0.90 视为中高风险信号。\n"
             "- 未找到相似地址时应下调置信度并说明不确定性。\n\n"

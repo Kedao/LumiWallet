@@ -216,12 +216,6 @@
   line-height: 1.18;
 }
 
-.hero-copy {
-  margin-top: 0.85rem;
-  color: var(--text-subtle);
-  font-size: 1rem;
-}
-
 .feature-grid {
   margin-top: 1.5rem;
   display: grid;
@@ -256,65 +250,6 @@
 .feature-card p {
   color: var(--text-subtle);
   font-size: 0.9rem;
-}
-
-.progress-panel {
-  margin-top: 1.2rem;
-  border-radius: 20px;
-  border: 1px solid rgba(11, 108, 255, 0.2);
-  background: linear-gradient(135deg, rgba(11, 108, 255, 0.06), rgba(255, 255, 255, 0.88));
-  padding: 1rem;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  margin-bottom: 0.7rem;
-}
-
-.panel-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.panel-tag {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 0.3rem 0.68rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  background: var(--accent-soft);
-  color: #7b4606;
-}
-
-.progress-list {
-  list-style: none;
-  display: grid;
-  gap: 0.48rem;
-}
-
-.progress-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  font-size: 0.92rem;
-}
-
-.status-mark {
-  width: 1.1rem;
-  text-align: center;
-  font-weight: 700;
-}
-
-.status-done .status-mark {
-  color: var(--success);
-}
-
-.status-pending .status-mark {
-  color: var(--warning);
 }
 
 .approve-card {
@@ -364,7 +299,32 @@
 .approve-form {
   margin-top: 0.9rem;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+}
+
+.approve-option {
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.78rem;
+}
+
+.approve-option-risky {
+  border-color: rgba(214, 83, 62, 0.35);
+  background: rgba(255, 246, 244, 0.9);
+}
+
+.approve-option-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.approve-option-desc {
+  margin-top: 0.2rem;
+  color: var(--text-subtle);
+  font-size: 0.84rem;
 }
 
 .approve-field {
@@ -400,7 +360,7 @@
 }
 
 .approve-actions {
-  margin-top: 0.1rem;
+  margin-top: 0.55rem;
 }
 
 .approve-hint {

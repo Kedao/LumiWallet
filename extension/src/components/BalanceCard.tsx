@@ -1,4 +1,5 @@
 import { useWallet } from '../state/walletStore'
+import TokenIcon from './TokenIcon'
 
 const BalanceCard = () => {
   const { balance } = useWallet()
@@ -44,8 +45,8 @@ const BalanceCard = () => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>Assets</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Monad Testnet</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>资产</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Monad 测试网</div>
       </div>
 
       <div style={{ display: 'grid', gap: 8 }}>
@@ -63,27 +64,11 @@ const BalanceCard = () => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  background: asset.isNative ? '#e8f5f2' : '#f3efe8',
-                  border: '1px solid var(--border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: 'var(--ink)'
-                }}
-              >
-                {asset.symbol.slice(0, 2).toUpperCase()}
-              </div>
+              <TokenIcon symbol={asset.symbol} size={28} background={asset.isNative ? '#e8f5f2' : '#f3efe8'} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{asset.symbol}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {asset.isNative ? 'Native token' : 'ERC20 token'}
+                  {asset.isNative ? '原生代币' : 'ERC20 代币'}
                 </div>
               </div>
             </div>

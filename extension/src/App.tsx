@@ -24,7 +24,7 @@ const App = () => {
             fontSize: 14
           }}
         >
-          Loading wallet...
+          正在加载钱包...
         </section>
       </Layout>
     )

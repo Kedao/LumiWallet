@@ -25,10 +25,20 @@ const RiskPanel = ({ phishingRisk = null, slippageRisk = null }: RiskPanelProps)
     return null
   }
 
-  const title = phishingRisk ? 'Phishing Risk' : 'Slippage Risk'
-  const riskLabel = phishingRisk ? phishingRisk.risk_level : slippageRisk!.exceed_slippage_probability_label
+  const title = phishingRisk ? '钓鱼风险' : '滑点风险'
+  const riskLabel = phishingRisk
+    ? phishingRisk.risk_level
+    : slippageRisk!.slippage_level ?? slippageRisk!.exceed_slippage_probability_label
   const summary = phishingRisk ? phishingRisk.summary : slippageRisk!.summary
   const normalizedLevel = normalizeRiskLevel(riskLabel)
+  const levelLabel =
+    normalizedLevel === 'high'
+      ? '高'
+      : normalizedLevel === 'medium'
+        ? '中'
+        : normalizedLevel === 'low'
+          ? '低'
+          : '未知'
   const palette =
     normalizedLevel === 'high'
       ? { background: '#fdeeee', border: '#f0c5c5', text: '#8b2b2b', badgeBg: '#d94b4b' }
@@ -61,11 +71,11 @@ const RiskPanel = ({ phishingRisk = null, slippageRisk = null }: RiskPanelProps)
             padding: '2px 8px'
           }}
         >
-          {String(riskLabel).toUpperCase()}
+          {levelLabel}
         </span>
       </div>
       <p style={{ margin: 0, fontSize: 12, color: palette.text }}>
-        {summary || 'No summary returned by the risk service.'}
+        {summary || '风险服务未返回摘要。'}
       </p>
     </section>
   )

@@ -8,7 +8,7 @@ import './styles/base.css'
 const container = document.getElementById('root')
 
 if (!container) {
-  throw new Error('Root container not found')
+  throw new Error('未找到根容器。')
 }
 
 createRoot(container).render(

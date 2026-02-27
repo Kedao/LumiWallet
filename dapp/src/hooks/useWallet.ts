@@ -14,7 +14,7 @@ export function useWallet() {
     chainId: null,
     isConnected: false,
   })
-  const [walletName, setWalletName] = useState<'LumiWallet' | 'MetaMask' | null>(null)
+  const [walletName, setWalletName] = useState<'灵光钱包' | 'MetaMask' | null>(null)
   const [requireReconnectAuth, setRequireReconnectAuth] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -22,8 +22,8 @@ export function useWallet() {
     showErrorDialog(title, message)
   }, [])
 
-  const getWalletName = useCallback((provider: LumiWalletProvider): 'LumiWallet' | 'MetaMask' | null => {
-    if (provider.isLumiWallet) return 'LumiWallet'
+  const getWalletName = useCallback((provider: LumiWalletProvider): '灵光钱包' | 'MetaMask' | null => {
+    if (provider.isLumiWallet) return '灵光钱包'
     if (provider.isMetaMask) return 'MetaMask'
     return null
   }, [])
@@ -92,7 +92,7 @@ export function useWallet() {
   const connect = useCallback(async () => {
     const provider = getProvider()
     if (!provider) {
-      showException('未检测到钱包插件', '请安装 MetaMask 或 LumiWallet 浏览器插件。')
+      showException('未检测到钱包插件', '请安装 MetaMask 或 灵光钱包 浏览器插件。')
       return
     }
 
@@ -126,7 +126,7 @@ export function useWallet() {
       })) as string
 
       if (accounts.length === 0) {
-        showException('等待钱包授权', '请在 LumiWallet 侧边栏完成连接授权。')
+        showException('等待钱包授权', '请在灵光钱包侧边栏完成连接授权。')
         return
       }
 
