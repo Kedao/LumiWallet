@@ -52,7 +52,7 @@ const LoginPage = () => {
       <p style={{ color: 'var(--muted)', marginTop: 4 }}>
         {isInitialized
           ? '请输入钱包密码继续。'
-          : '使用 LumiWallet 前请先设置钱包密码。'}
+          : '使用灵光钱包前请先设置钱包密码。'}
       </p>
 
       <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12, marginTop: 12 }}>

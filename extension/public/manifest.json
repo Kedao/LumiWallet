@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "LumiWallet",
+  "name": "灵光钱包",
   "version": "0.1.0",
   "description": "Agent-powered Smart Wallet for Monad",
   "icons": {
@@ -10,7 +10,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "LumiWallet",
+    "default_title": "灵光钱包",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

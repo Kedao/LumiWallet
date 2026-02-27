@@ -277,7 +277,7 @@ const Layout = ({ children }: PropsWithChildren) => {
                           }}
                         >
                           <div style={{ fontSize: 12, color: '#8b2b2b' }}>
-                            该账户将从 Lumi 移除，请确保已备份该账户私钥。
+                            该账户将从灵光钱包移除，请确保已备份该账户私钥。
                           </div>
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button

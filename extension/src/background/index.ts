@@ -710,7 +710,7 @@ const parseChainId = (value: unknown): bigint => parseQuantity(value, 'chainId')
 const assertUnlocked = async (): Promise<void> => {
   const unlocked = await isWalletUnlocked()
   if (!unlocked) {
-    throw toRpcError(4100, '钱包已锁定，请先解锁 LumiWallet。')
+    throw toRpcError(4100, '钱包已锁定，请先解锁灵光钱包。')
   }
 }
 
@@ -739,7 +739,7 @@ const decryptImportedPrivateKey = async (
       ['decrypt']
     )
   } catch {
-    throw toRpcError(4100, '钱包会话无效，请重新解锁 LumiWallet。')
+    throw toRpcError(4100, '钱包会话无效，请重新解锁灵光钱包。')
   }
 
   try {
@@ -771,7 +771,7 @@ const getSelectedAccountWallet = async (): Promise<Wallet> => {
   }
   const sessionSecretHex = await getWalletSessionSecretHex()
   if (!sessionSecretHex) {
-    throw toRpcError(4100, '钱包会话已过期，请重新解锁 LumiWallet。')
+    throw toRpcError(4100, '钱包会话已过期，请重新解锁灵光钱包。')
   }
 
   const privateKeyHex = await decryptImportedPrivateKey(account, sessionSecretHex)

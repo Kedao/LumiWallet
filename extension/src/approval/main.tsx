@@ -699,7 +699,7 @@ const ApprovalApp = () => {
         <div>
           <h1 style={{ margin: 0, fontSize: 18 }}>授权请求</h1>
           <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-            需要在 LumiWallet 中确认授权
+            需要在灵光钱包中确认授权
           </div>
         </div>
 
