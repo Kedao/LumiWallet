@@ -7,28 +7,19 @@ import './App.css'
 const features = [
   {
     icon: '💸',
-    title: '代币转账',
-    description: '支持 MON 代币转账，并提供 AI 风险预判。',
+    title: '代币安全',
+    description: '转账前识别高风险地址、异常代币与可疑授权，并实时提醒关键风险。',
   },
   {
     icon: '📝',
-    title: '合约交互',
-    description: '合约调用前自动分析授权和潜在危险操作。',
+    title: '合约防护',
+    description: '调用前解析方法与权限范围，重点提示钓鱼合约、无限授权等高危行为。',
   },
   {
     icon: '🔄',
-    title: 'DEX 交易',
-    description: '聚合路由报价并在交易前执行安全检查。',
+    title: 'DEX 风险预警',
+    description: '交易前检测滑点异常、路径风险与价格波动，触发风险提醒后再确认提交。',
   },
-]
-
-const progress = [
-  { done: true, label: '钱包连接（EIP-1193）' },
-  { done: true, label: 'ERC20 授权（Approve）通用能力' },
-  { done: false, label: '代币转账功能' },
-  { done: false, label: '合约交互功能' },
-  { done: false, label: 'DEX 交易功能' },
-  { done: false, label: 'AI 风险分析集成' },
 ]
 
 function App() {
@@ -47,7 +38,7 @@ function App() {
             </div>
             <div>
               <p className="brand-kicker">WalletLab Security Suite</p>
-              <h1 className="brand-title">LumiWallet DApp</h1>
+              <h1 className="brand-title">灵光钱包 DApp</h1>
               <p className="brand-subtitle">测试场景 DApp · 智能钱包安全实验台</p>
             </div>
           </div>
@@ -68,11 +59,7 @@ function App() {
         <section className="hero-card">
           <div className="hero-intro">
             <p className="eyebrow">Risk-Aware Wallet Experience</p>
-            <h2>欢迎使用 LumiWallet 测试 DApp</h2>
-            <p className="hero-copy">
-              这是一个用于验证 LumiWallet 智能钱包能力的前端应用。当前版本已支持钱包连接，后续会逐步开放资产转账、合约调用与 DEX
-              交易流程。
-            </p>
+            <h2>欢迎使用灵光钱包测试 DApp</h2>
           </div>
 
           <div className="feature-grid">
@@ -86,21 +73,6 @@ function App() {
               </article>
             ))}
           </div>
-
-          <section className="progress-panel">
-            <div className="panel-head">
-              <p className="panel-title">开发进度</p>
-              <span className="panel-tag">Milestone A</span>
-            </div>
-            <ul className="progress-list">
-              {progress.map((item) => (
-                <li key={item.label} className={item.done ? 'status-done' : 'status-pending'}>
-                  <span className="status-mark">{item.done ? '✓' : '○'}</span>
-                  <span>{item.label}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
 
           <ApproveRequestCard wallet={wallet} />
         </section>
