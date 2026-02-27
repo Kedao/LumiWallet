@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { TransactionRecord } from '../types/models'
 import { getExplorerTxUrl } from '../services/walletClient'
 import HashText from './HashText'
+import TokenIcon from './TokenIcon'
 
 interface TxHistoryListProps {
   records: TransactionRecord[]
@@ -16,25 +17,228 @@ const formatRecordTime = (timestamp: number): string =>
     minute: '2-digit'
   })
 
-const getTypeLabel = (type: TransactionRecord['type']): string => {
-  if (type === 'transfer') {
-    return 'Send'
+const inferTokenSymbolFromAmount = (amount: string): string | null => {
+  const normalized = amount.toUpperCase()
+  if (normalized.includes('EGOLD')) {
+    return 'eGold'
   }
-  if (type === 'dex') {
-    return 'Swap'
+  if (normalized.includes('MON')) {
+    return 'MON'
   }
-  return 'Other'
+  return null
+}
+
+const getStatusLabel = (status: TransactionRecord['status']): string => {
+  if (status === 'success') {
+    return 'Success'
+  }
+  if (status === 'failed') {
+    return 'Failed'
+  }
+  return 'Pending'
+}
+
+const getStatusColor = (status: TransactionRecord['status']): string => {
+  if (status === 'success') {
+    return '#2f9d69'
+  }
+  if (status === 'failed') {
+    return '#d94b4b'
+  }
+  return '#b07a00'
+}
+
+type ActivityVisual = {
+  label: string
+  kind: 'send' | 'receive' | 'swap' | 'approve' | 'contract' | 'self' | 'transfer'
+  badgeBg: string
+  badgeColor: string
+  amountSign: '' | '+' | '-'
+}
+
+const getActivityVisual = (record: TransactionRecord): ActivityVisual => {
+  const methodSig = (record.methodSig ?? '').toLowerCase()
+
+  if (record.type === 'transfer') {
+    if (record.direction === 'in') {
+      return {
+        label: 'Received',
+        kind: 'receive',
+        badgeBg: '#e7f8ef',
+        badgeColor: '#1f8f59',
+        amountSign: '+'
+      }
+    }
+    if (record.direction === 'self') {
+      return {
+        label: 'Self',
+        kind: 'self',
+        badgeBg: '#eef1f5',
+        badgeColor: '#4e5d6b',
+        amountSign: ''
+      }
+    }
+    if (record.direction !== 'out') {
+      return {
+        label: 'Transfer',
+        kind: 'transfer',
+        badgeBg: '#eef1f5',
+        badgeColor: '#4e5d6b',
+        amountSign: ''
+      }
+    }
+    return {
+      label: 'Sent',
+      kind: 'send',
+      badgeBg: '#fce9e8',
+      badgeColor: '#c64545',
+      amountSign: '-'
+    }
+  }
+
+  if (record.type === 'dex') {
+    return {
+      label: 'Swap',
+      kind: 'swap',
+      badgeBg: '#eaf2ff',
+      badgeColor: '#3464b2',
+      amountSign: ''
+    }
+  }
+
+  if (methodSig.includes('approve') || methodSig.startsWith('0x095ea7b3')) {
+    return {
+      label: 'Approve',
+      kind: 'approve',
+      badgeBg: '#f2edff',
+      badgeColor: '#6c4eb7',
+      amountSign: ''
+    }
+  }
+
+  return {
+    label: 'Contract',
+    kind: 'contract',
+    badgeBg: '#eef1f5',
+    badgeColor: '#4e5d6b',
+    amountSign: ''
+  }
+}
+
+const applyAmountSign = (amount: string, sign: '' | '+' | '-'): string => {
+  const trimmed = amount.trim()
+  if (!trimmed || !sign) {
+    return trimmed || '-'
+  }
+  if (trimmed.startsWith('+') || trimmed.startsWith('-')) {
+    return trimmed
+  }
+  return `${sign}${trimmed}`
+}
+
+const getAmountColor = (sign: '' | '+' | '-'): string => {
+  if (sign === '+') {
+    return '#1f8f59'
+  }
+  if (sign === '-') {
+    return '#c64545'
+  }
+  return 'var(--ink)'
+}
+
+const ActivityBadge = ({ visual }: { visual: ActivityVisual }) => {
+  const commonSvg = {
+    width: 16,
+    height: 16,
+    viewBox: '0 0 16 16',
+    fill: 'none',
+    stroke: visual.badgeColor,
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const
+  }
+
+  const icon = (() => {
+    if (visual.kind === 'receive') {
+      return (
+        <svg {...commonSvg}>
+          <path d="M8 3v8" />
+          <path d="M5 8.5 8 11.5l3-3" />
+        </svg>
+      )
+    }
+    if (visual.kind === 'send') {
+      return (
+        <svg {...commonSvg}>
+          <path d="M8 13V5" />
+          <path d="M5 7.5 8 4.5l3 3" />
+        </svg>
+      )
+    }
+    if (visual.kind === 'swap') {
+      return (
+        <svg {...commonSvg}>
+          <path d="M3 5h8" />
+          <path d="m9 3 2 2-2 2" />
+          <path d="M13 11H5" />
+          <path d="m7 9-2 2 2 2" />
+        </svg>
+      )
+    }
+    if (visual.kind === 'approve') {
+      return (
+        <svg {...commonSvg}>
+          <path d="m4.5 8.2 2.1 2.1L11.8 5" />
+        </svg>
+      )
+    }
+    if (visual.kind === 'self') {
+      return (
+        <svg {...commonSvg}>
+          <path d="M5.5 5.2 3.8 7l1.7 1.8" />
+          <path d="M10.5 10.8 12.2 9l-1.7-1.8" />
+          <path d="M3.8 7h5.4" />
+          <path d="M12.2 9H6.8" />
+        </svg>
+      )
+    }
+    if (visual.kind === 'transfer') {
+      return (
+        <svg {...commonSvg}>
+          <path d="M3.5 8h8.5" />
+          <path d="m9.5 5.5 2.5 2.5-2.5 2.5" />
+        </svg>
+      )
+    }
+    return (
+      <svg {...commonSvg}>
+        <path d="M5.5 5.2h-2v5.6h2" />
+        <path d="M10.5 5.2h2v5.6h-2" />
+      </svg>
+    )
+  })()
+
+  return (
+    <span
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: '50%',
+        background: visual.badgeBg,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: '0 0 auto'
+      }}
+    >
+      {icon}
+    </span>
+  )
 }
 
 const TxHistoryList = ({ records }: TxHistoryListProps) => {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
-  const supportedRecords = useMemo(
-    () =>
-      records
-        .filter((item) => item.type === 'transfer' || item.type === 'dex')
-        .sort((a, b) => b.timestamp - a.timestamp),
-    [records]
-  )
+  const supportedRecords = useMemo(() => records.slice().sort((a, b) => b.timestamp - a.timestamp), [records])
 
   const selectedRecord = useMemo(
     () => supportedRecords.find((item) => item.id === selectedRecordId) ?? null,
@@ -43,6 +247,12 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
 
   const explorerUrl = selectedRecord?.hash ? getExplorerTxUrl(selectedRecord.hash) : ''
   const counterparty = selectedRecord?.to ?? selectedRecord?.contract ?? '-'
+  const selectedVisual = selectedRecord ? getActivityVisual(selectedRecord) : null
+  const selectedRecordTokenSymbol = selectedRecord?.tokenSymbol ?? (selectedRecord ? inferTokenSymbolFromAmount(selectedRecord.amount) : null)
+  const selectedRecordAmount = selectedRecord && selectedVisual
+    ? applyAmountSign(selectedRecord.amount, selectedVisual.amountSign)
+    : '-'
+  const counterpartyLabel = selectedRecord?.direction === 'in' ? 'From' : 'To'
 
   return (
     <section
@@ -72,6 +282,9 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
         <div style={{ display: 'grid', gap: 10 }}>
           {supportedRecords.map((item) => {
             const isSelected = selectedRecordId === item.id
+            const visual = getActivityVisual(item)
+            const tokenSymbol = item.tokenSymbol ?? inferTokenSymbolFromAmount(item.amount)
+            const amountText = applyAmountSign(item.amount, visual.amountSign)
             return (
               <button
                 key={item.id}
@@ -83,28 +296,34 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
                   alignItems: 'center',
                   textAlign: 'left',
                   borderRadius: 12,
-                  padding: 10,
-                  background: isSelected ? '#effaf7' : '#fdfcf9',
-                  border: isSelected ? '1px solid #9ad7bd' : '1px solid var(--border)',
+                  padding: '10px 12px',
+                  background: isSelected ? '#f3f7ff' : '#ffffff',
+                  border: isSelected ? '1px solid #cfdcff' : '1px solid #e6ebf2',
                   minWidth: 0,
                   cursor: 'pointer'
                 }}
               >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 12 }}>{getTypeLabel(item.type)}</div>
-                  <div style={{ fontSize: 10, color: 'var(--muted)' }}>{formatRecordTime(item.timestamp)}</div>
+                <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ActivityBadge visual={visual} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{visual.label}</div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)' }}>{formatRecordTime(item.timestamp)}</div>
+                  </div>
                 </div>
                 <div
                   style={{
                     fontSize: 12,
-                    fontWeight: 600,
+                    fontWeight: 700,
                     maxWidth: '50%',
                     textAlign: 'right',
                     overflowWrap: 'anywhere',
                     wordBreak: 'break-word'
                   }}
                 >
-                  {item.amount}
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {tokenSymbol ? <TokenIcon symbol={tokenSymbol} size={14} background="#f6f8fb" /> : null}
+                    <span style={{ color: getAmountColor(visual.amountSign) }}>{amountText}</span>
+                  </div>
                 </div>
               </button>
             )
@@ -127,14 +346,32 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
         >
           <div style={{ fontSize: 12, fontWeight: 700 }}>Transaction Details</div>
           <div style={{ fontSize: 12 }}>
-            <strong>Type:</strong> {getTypeLabel(selectedRecord.type)}
+            <strong>Type:</strong> {selectedVisual?.label ?? 'Other'}
+          </div>
+          <div style={{ fontSize: 12, color: getStatusColor(selectedRecord.status) }}>
+            <strong>Status:</strong> {getStatusLabel(selectedRecord.status)}
           </div>
           <div style={{ fontSize: 12 }}>
-            <strong>Counterparty:</strong>
+            <strong>Amount:</strong>{' '}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {selectedRecordTokenSymbol ? <TokenIcon symbol={selectedRecordTokenSymbol} size={14} background="#f6f8fb" /> : null}
+              <span>{selectedRecordAmount}</span>
+            </span>
+          </div>
+          <div style={{ fontSize: 12 }}>
+            <strong>{counterpartyLabel}:</strong>
             <div style={{ marginTop: 2 }}>
               <HashText value={counterparty} mode="wrap" fontSize={11} color="var(--muted)" />
             </div>
           </div>
+          {selectedRecord.methodSig ? (
+            <div style={{ fontSize: 12, minWidth: 0 }}>
+              <strong>Method:</strong>
+              <div style={{ marginTop: 2 }}>
+                <HashText value={selectedRecord.methodSig} mode="wrap" fontSize={11} color="var(--muted)" />
+              </div>
+            </div>
+          ) : null}
           <div style={{ fontSize: 12 }}>
             <strong>Tx:</strong>
             <div style={{ marginTop: 2 }}>

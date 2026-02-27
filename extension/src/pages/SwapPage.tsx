@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
+import TokenIcon from '../components/TokenIcon'
 import {
   fetchBalance,
   fetchSwapSlippagePoolRiskStatsByInputAmount,
@@ -358,6 +359,7 @@ const SwapPage = () => {
         <span style={{ fontSize: 14, fontWeight: 800 }}>
           You receive
         </span>
+        <TokenIcon symbol={receiveToken} size={18} background="#edf8f3" borderColor="#bde7d1" />
         <select
           value={receiveToken}
           onChange={(event) => {
@@ -436,14 +438,18 @@ const SwapPage = () => {
                   textAlign: 'right'
                 }}
               />
-              <span style={{ fontSize: 12, fontWeight: 700, minWidth: 44 }}>{payToken}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 64, justifyContent: 'flex-end' }}>
+                <TokenIcon symbol={payToken} size={16} background="#f6f8fb" />
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{payToken}</span>
+              </div>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>Available</span>
-            <span style={{ fontSize: 12 }}>
-              {formatDisplayAmount(payBalance)} {payToken}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <TokenIcon symbol={payToken} size={14} background="#f6f8fb" />
+              <span>{formatDisplayAmount(payBalance)} {payToken}</span>
+            </div>
           </div>
         </section>
 
@@ -463,8 +469,9 @@ const SwapPage = () => {
             <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: '#194d36' }}>
               {quote ? formatDisplayAmount(expectedReceiveAmount) : '--'}
             </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#194d36' }}>
-              {receiveToken}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 800, color: '#194d36' }}>
+              <TokenIcon symbol={receiveToken} size={16} background="#eef9f4" borderColor="#9ad9bc" />
+              <span>{receiveToken}</span>
             </div>
           </div>
         </section>

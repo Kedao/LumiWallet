@@ -1207,9 +1207,40 @@ export const fetchHistory = async (): Promise<TransactionRecord[]> => {
     const summary = await fetchRecentAddressTransactionSummary(account.address, { limit: RECENT_ADDRESS_TX_LIMIT })
     return summary.records.map((item) => ({
       id: item.hash,
-      type: item.to && normalizeAddress(item.to) === AMM_CONTRACT_ADDRESS ? 'dex' : 'transfer',
+      type: (() => {
+        const methodSigLower = (item.methodSig ?? '').toLowerCase()
+        const isDex =
+          (item.to && normalizeAddress(item.to) === AMM_CONTRACT_ADDRESS) ||
+          methodSigLower.includes('swap')
+        const isApprove =
+          methodSigLower.includes('approve') ||
+          methodSigLower.startsWith(ERC20_APPROVE_METHOD_ID)
+        const hasContractCall = Boolean(item.methodSig && item.methodSig !== '0x')
+        const isTokenTransferMethod =
+          item.tokenAddress !== null &&
+          (
+            methodSigLower.includes('transfer') ||
+            methodSigLower.startsWith(ERC20_TRANSFER_METHOD_ID) ||
+            methodSigLower.startsWith(ERC20_TRANSFER_FROM_METHOD_ID)
+          )
+        if (isDex) {
+          return 'dex'
+        }
+        if (isApprove || (hasContractCall && !isTokenTransferMethod)) {
+          return 'contract'
+        }
+        return 'transfer'
+      })(),
+      direction: item.direction,
       timestamp: item.timestamp,
-      amount: `${item.value} MON`,
+      amount: (() => {
+        const isEGoldTransfer = item.tokenAddress === EGOLD_CONTRACT_ADDRESS
+        const rawAmount = isEGoldTransfer && item.phishingValue ? item.phishingValue : item.value
+        const tokenSymbol = isEGoldTransfer ? 'eGold' : 'MON'
+        return `${rawAmount} ${tokenSymbol}`
+      })(),
+      tokenSymbol: item.tokenAddress === EGOLD_CONTRACT_ADDRESS ? 'eGold' : 'MON',
+      methodSig: item.methodSig ?? undefined,
       status: 'success',
       to: item.to ?? undefined,
       hash: item.hash

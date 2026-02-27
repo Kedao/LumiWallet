@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { getAddress, parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
+import TokenIcon from '../components/TokenIcon'
 import {
   fetchBalance,
   fetchRecentAddressTransactionSummary,
@@ -315,6 +316,10 @@ const SendPage = () => {
       <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10, minWidth: 0 }}>
         <label style={{ display: 'grid', gap: 6 }}>
           <span style={{ fontSize: 12, fontWeight: 600 }}>Token</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+            <TokenIcon symbol={token} size={18} background="#f1f5fb" />
+            <span>Selected: {token}</span>
+          </div>
           <select
             value={token}
             onChange={(event) => {
@@ -384,8 +389,10 @@ const SendPage = () => {
           />
         </label>
 
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Available: {formatDisplayAmount(availableAmount)} {token}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+          <span>Available:</span>
+          <TokenIcon symbol={token} size={16} background="#f6f8fb" />
+          <span>{formatDisplayAmount(availableAmount)} {token}</span>
         </div>
 
         {isAmountInvalid ? (
