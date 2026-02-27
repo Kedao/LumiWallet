@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { TransactionRecord } from '../types/models'
 import { getExplorerTxUrl } from '../services/walletClient'
 import HashText from './HashText'
@@ -238,6 +238,7 @@ const ActivityBadge = ({ visual }: { visual: ActivityVisual }) => {
 
 const TxHistoryList = ({ records }: TxHistoryListProps) => {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const supportedRecords = useMemo(() => records.slice().sort((a, b) => b.timestamp - a.timestamp), [records])
 
   const selectedRecord = useMemo(
@@ -253,6 +254,43 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
     ? applyAmountSign(selectedRecord.amount, selectedVisual.amountSign)
     : '-'
   const counterpartyLabel = selectedRecord?.direction === 'in' ? '来自' : '发送至'
+  const canCopyCounterparty =
+    counterparty !== '-' && (selectedVisual?.kind === 'send' || selectedVisual?.kind === 'receive')
+
+  useEffect(() => {
+    setCopyStatus('idle')
+  }, [selectedRecordId])
+
+  const copyTextToClipboard = async (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return
+    }
+
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(trimmed)
+      return
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = trimmed
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+
+  const handleCopyCounterparty = async () => {
+    try {
+      await copyTextToClipboard(counterparty)
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('failed')
+    }
+  }
 
   return (
     <section
@@ -360,18 +398,40 @@ const TxHistoryList = ({ records }: TxHistoryListProps) => {
           </div>
           <div style={{ fontSize: 12 }}>
             <strong>{counterpartyLabel}：</strong>
-            <div style={{ marginTop: 2 }}>
-              <HashText value={counterparty} mode="wrap" fontSize={11} color="var(--muted)" />
+            <div style={{ marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  fontFamily: 'monospace',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word'
+                }}
+              >
+                {counterparty}
+              </span>
+              {canCopyCounterparty ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleCopyCounterparty()
+                  }}
+                  style={{
+                    borderRadius: 8,
+                    border: copyStatus === 'copied' ? '1px solid #bde7d1' : copyStatus === 'failed' ? '1px solid #f0c5c5' : '1px solid var(--border)',
+                    background: copyStatus === 'copied' ? '#eaf8f1' : copyStatus === 'failed' ? '#fdeeee' : '#fff',
+                    color: copyStatus === 'copied' ? '#1f5e41' : copyStatus === 'failed' ? '#8b2b2b' : 'var(--ink)',
+                    padding: '2px 8px',
+                    fontSize: 11,
+                    lineHeight: 1.6,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {copyStatus === 'copied' ? '已复制' : copyStatus === 'failed' ? '复制失败' : '复制'}
+                </button>
+              ) : null}
             </div>
           </div>
-          {selectedRecord.methodSig ? (
-            <div style={{ fontSize: 12, minWidth: 0 }}>
-              <strong>方法：</strong>
-              <div style={{ marginTop: 2 }}>
-                <HashText value={selectedRecord.methodSig} mode="wrap" fontSize={11} color="var(--muted)" />
-              </div>
-            </div>
-          ) : null}
           <div style={{ fontSize: 12 }}>
             <strong>交易：</strong>
             <div style={{ marginTop: 2 }}>
