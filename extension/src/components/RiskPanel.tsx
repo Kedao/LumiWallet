@@ -26,7 +26,9 @@ const RiskPanel = ({ phishingRisk = null, slippageRisk = null }: RiskPanelProps)
   }
 
   const title = phishingRisk ? 'Phishing Risk' : 'Slippage Risk'
-  const riskLabel = phishingRisk ? phishingRisk.risk_level : slippageRisk!.exceed_slippage_probability_label
+  const riskLabel = phishingRisk
+    ? phishingRisk.risk_level
+    : slippageRisk!.slippage_level ?? slippageRisk!.exceed_slippage_probability_label
   const summary = phishingRisk ? phishingRisk.summary : slippageRisk!.summary
   const normalizedLevel = normalizeRiskLevel(riskLabel)
   const palette =

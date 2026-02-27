@@ -45,7 +45,7 @@ const getPayTokenByReceiveToken = (receiveToken: SwapTargetToken): SwapTargetTok
   receiveToken === 'MON' ? 'eGold' : 'MON'
 
 const normalizeRiskLabel = (
-  value: SlippageRiskResponse['exceed_slippage_probability_label']
+  value: SlippageRiskResponse['slippage_level'] | SlippageRiskResponse['exceed_slippage_probability_label'] | undefined
 ): 'high' | 'medium' | 'low' | 'unknown' => {
   if (value === 'high' || value === '高') {
     return 'high'
@@ -63,7 +63,7 @@ const getSlippageButtonBackground = (risk: SlippageRiskResponse | null): string 
   if (!risk) {
     return null
   }
-  const normalized = normalizeRiskLabel(risk.exceed_slippage_probability_label)
+  const normalized = normalizeRiskLabel(risk.slippage_level ?? risk.exceed_slippage_probability_label)
   if (normalized === 'high') {
     return '#d94b4b'
   }
@@ -216,7 +216,9 @@ const SwapPage = () => {
     ? `${quote.inputToken}:${quote.outputToken}:${quote.inputAmount}:${quote.expectedOutputAmount}`
     : ''
   const hasReviewedCurrentQuote = currentQuoteKey.length > 0 && reviewedQuoteKey === currentQuoteKey
-  const slippageRiskLevel = slippageRisk ? normalizeRiskLabel(slippageRisk.exceed_slippage_probability_label) : null
+  const slippageRiskLevel = slippageRisk
+    ? normalizeRiskLabel(slippageRisk.slippage_level ?? slippageRisk.exceed_slippage_probability_label)
+    : null
   const isSwapCooldownActive =
     hasReviewedCurrentQuote && swapCooldownSeconds > 0 && (slippageRiskLevel === 'high' || slippageRiskLevel === 'medium')
   const swapButtonBackground = getSlippageButtonBackground(slippageRisk)
@@ -264,15 +266,13 @@ const SwapPage = () => {
         const risk = await analyzeSlippageRisk({
           pool_address: poolStats.poolAddress,
           chain: 'monad',
-          token_in: payToken,
-          token_out: receiveToken,
-          amount_in: quote.inputAmount,
-          trade_type: 'exact_in',
+          token_pay_amount: quote.inputAmount,
           interaction_type: 'swap',
-          pool: poolStats.priceImpactPct === null ? undefined : { price_impact_pct: poolStats.priceImpactPct },
-          extra_features: {
-            expected_output_amount: quote.expectedOutputAmount,
-            quote_input_amount: quote.inputAmount
+          pool: {
+            price_impact_pct: poolStats.priceImpactPct ?? null,
+            token_pay_amount: quote.inputAmount,
+            token_get_amount: quote.expectedOutputAmount,
+            type: 'AMM'
           }
         })
         if (riskReviewRequestIdRef.current !== reviewRequestId) {
@@ -281,7 +281,7 @@ const SwapPage = () => {
         setSlippageRisk(risk)
         setSwapCooldownSeconds(
           (() => {
-            const normalized = normalizeRiskLabel(risk.exceed_slippage_probability_label)
+            const normalized = normalizeRiskLabel(risk.slippage_level ?? risk.exceed_slippage_probability_label)
             return normalized === 'high' || normalized === 'medium' ? 3 : 0
           })()
         )

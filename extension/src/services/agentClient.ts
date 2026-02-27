@@ -35,11 +35,22 @@ export interface PhishingRiskRequest {
   address: string
   chain?: string
   lang?: RiskLanguage
+  // Legacy compatibility fields currently ignored by backend model.
   interaction_type?: 'transfer' | 'approve' | 'contract_call' | null
   transactions?: AccountTransaction[]
   lifecycle?: LifecycleInfo
   tags?: TagInfo[]
   extra_features?: Record<string, unknown>
+}
+
+export interface PhishingRiskResponse {
+  risk_level: RiskLevelLabel
+  summary: string
+  confidence: number
+  most_similar_address?: string | null
+  most_similar_similarity?: number
+  most_similar_transactions?: AccountTransaction[]
+  similarity_method?: string
 }
 
 export interface ContractCodeInfo {
@@ -112,18 +123,25 @@ export interface PoolStats {
   price_impact_pct?: number | null
 }
 
+export interface SlippagePoolStats extends PoolStats {
+  token_pay_amount?: string | null
+  token_get_amount?: string | null
+  type?: string | null
+}
+
 export interface SlippageRiskRequest {
   pool_address: string
   chain?: string
   lang?: RiskLanguage
-  token_in: string
-  token_out: string
-  amount_in: string
+  token_in?: string
+  token_out?: string
+  amount_in?: string
+  token_pay_amount?: string
   time_window?: string
   trade_type?: string
-  interaction_type?: 'swap' | null
+  interaction_type?: 'swap' | string | null
   orderbook?: OrderBookStats
-  pool?: PoolStats
+  pool?: SlippagePoolStats
   extra_features?: Record<string, unknown>
 }
 
@@ -136,7 +154,7 @@ export interface SecurityRiskResponse {
   risk_level: RiskLevelLabel
   summary: string
   confidence: number
-  top_reasons: RiskReason[]
+  top_reasons?: RiskReason[]
 }
 
 export interface SlippageFactor {
@@ -150,6 +168,7 @@ export interface SlippageRiskResponse {
   summary: string
   key_factors: SlippageFactor[]
   market_context: Record<string, unknown>
+  slippage_level?: RiskLevelLabel
 }
 
 export type PhishingRiskInput = Omit<PhishingRiskRequest, 'lang'>
@@ -158,6 +177,52 @@ export type SlippageRiskInput = Omit<SlippageRiskRequest, 'lang'>
 
 interface AgentApiErrorPayload {
   detail?: string | { msg?: string } | Array<{ msg?: string }>
+}
+
+interface ApiPhishingRiskRequest {
+  address: string
+  chain?: string
+  lang?: RiskLanguage
+  transactions?: AccountTransaction[]
+}
+
+interface ApiContractRiskRequest {
+  contract_address: string
+  chain?: string
+  lang?: RiskLanguage
+  interaction_type?: string | null
+  creator?: ContractCreatorInfo
+  proxy?: ContractProxyInfo
+  permissions?: ContractPermissions
+  token_flags?: TokenBehaviorFlags
+  code?: ContractCodeInfo
+  tags?: TagInfo[]
+  extra_features?: Record<string, unknown>
+}
+
+interface ApiSlippagePoolStats {
+  price_impact_pct?: number | null
+  token_pay_amount?: string | null
+  token_get_amount?: string | null
+  type?: string | null
+}
+
+interface ApiSlippageRiskRequest {
+  pool_address: string
+  chain?: string
+  lang?: RiskLanguage
+  token_pay_amount: string
+  interaction_type?: string | null
+  pool?: ApiSlippagePoolStats
+}
+
+interface ApiSlippageRiskResponse {
+  slippage_level?: RiskLevelLabel
+  summary?: string
+  expected_slippage_pct?: number
+  exceed_slippage_probability_label?: RiskLevelLabel
+  key_factors?: SlippageFactor[]
+  market_context?: Record<string, unknown>
 }
 
 const DEFAULT_AGENT_SERVER_URL = 'http://127.0.0.1:8000'
@@ -212,20 +277,103 @@ const postJson = async <TRequest, TResponse>(path: string, payload: TRequest): P
   return (await response.json()) as TResponse
 }
 
-export const analyzePhishingRisk = (payload: PhishingRiskInput) =>
-  postJson<PhishingRiskRequest, SecurityRiskResponse>(
+const toApiPhishingRequest = (payload: PhishingRiskInput): ApiPhishingRiskRequest => ({
+  address: payload.address,
+  chain: payload.chain,
+  transactions: payload.transactions
+})
+
+const toApiContractRequest = (payload: ContractRiskInput): ApiContractRiskRequest => ({
+  contract_address: payload.contract_address,
+  chain: payload.chain,
+  interaction_type: payload.interaction_type,
+  creator: payload.creator,
+  proxy: payload.proxy,
+  permissions: payload.permissions,
+  token_flags: payload.token_flags,
+  code: payload.code,
+  tags: payload.tags,
+  extra_features: payload.extra_features
+})
+
+const toApiSlippageRequest = (payload: SlippageRiskInput): ApiSlippageRiskRequest => {
+  const tokenPayAmount = typeof payload.token_pay_amount === 'string'
+    ? payload.token_pay_amount.trim()
+    : typeof payload.amount_in === 'string'
+      ? payload.amount_in.trim()
+      : ''
+  if (!tokenPayAmount) {
+    throw new Error('token_pay_amount is required for /risk/slippage.')
+  }
+
+  const extra = payload.extra_features
+  const extraTokenGetAmount =
+    extra && typeof extra === 'object' && typeof extra.expected_output_amount === 'string'
+      ? extra.expected_output_amount
+      : null
+
+  const pool = payload.pool
+    ? ({
+      price_impact_pct: payload.pool.price_impact_pct ?? null,
+      token_pay_amount: payload.pool.token_pay_amount ?? tokenPayAmount,
+      token_get_amount: payload.pool.token_get_amount ?? extraTokenGetAmount,
+      type: payload.pool.type ?? 'AMM'
+    } satisfies ApiSlippagePoolStats)
+    : undefined
+
+  return {
+    pool_address: payload.pool_address,
+    chain: payload.chain,
+    token_pay_amount: tokenPayAmount,
+    interaction_type: payload.interaction_type,
+    pool
+  }
+}
+
+const toSlippageRiskResponse = (
+  response: ApiSlippageRiskResponse,
+  request: ApiSlippageRiskRequest
+): SlippageRiskResponse => {
+  const level = response.exceed_slippage_probability_label ?? response.slippage_level ?? 'unknown'
+  const summary = typeof response.summary === 'string' && response.summary.trim()
+    ? response.summary
+    : 'No summary returned by the risk service.'
+  const expectedSlippage =
+    typeof response.expected_slippage_pct === 'number'
+      ? response.expected_slippage_pct
+      : typeof request.pool?.price_impact_pct === 'number'
+        ? request.pool.price_impact_pct
+        : 0
+  const keyFactors = Array.isArray(response.key_factors) ? response.key_factors : []
+  const marketContext = response.market_context ?? {}
+
+  return {
+    expected_slippage_pct: expectedSlippage,
+    exceed_slippage_probability_label: level,
+    summary,
+    key_factors: keyFactors,
+    market_context: marketContext,
+    slippage_level: response.slippage_level ?? level
+  }
+}
+
+export const analyzePhishingRisk = async (payload: PhishingRiskInput): Promise<PhishingRiskResponse> =>
+  postJson<ApiPhishingRiskRequest, PhishingRiskResponse>(
     '/risk/phishing',
-    payload
+    toApiPhishingRequest(payload)
   )
 
 export const analyzeContractRisk = (payload: ContractRiskInput) =>
-  postJson<ContractRiskRequest, SecurityRiskResponse>(
+  postJson<ApiContractRiskRequest, SecurityRiskResponse>(
     '/risk/contract',
-    payload
+    toApiContractRequest(payload)
   )
 
-export const analyzeSlippageRisk = (payload: SlippageRiskInput) =>
-  postJson<SlippageRiskRequest, SlippageRiskResponse>(
+export const analyzeSlippageRisk = async (payload: SlippageRiskInput): Promise<SlippageRiskResponse> => {
+  const request = toApiSlippageRequest(payload)
+  const response = await postJson<ApiSlippageRiskRequest, ApiSlippageRiskResponse>(
     '/risk/slippage',
-    payload
+    request
   )
+  return toSlippageRiskResponse(response, request)
+}

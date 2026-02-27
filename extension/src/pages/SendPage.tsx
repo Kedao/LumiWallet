@@ -1,9 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { parseUnits } from 'ethers'
+import { getAddress, parseUnits } from 'ethers'
 import HashText from '../components/HashText'
 import RiskPanel from '../components/RiskPanel'
 import {
-  fetchAddressLifecycleInfo,
   fetchBalance,
   fetchRecentAddressTransactionSummary,
   sendTokenTransfer
@@ -207,15 +206,12 @@ const SendPage = () => {
       setSendCooldownSeconds(0)
       setIsReviewingAddress(true)
       try {
-        const [senderSummary, receiverLifecycle] = await Promise.all([
-          fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 }),
-          fetchAddressLifecycleInfo(toAddress.trim())
-        ])
+        const receiverAddress = getAddress(toAddress.trim())
+        const senderSummary = await fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 })
         try {
           const risk = await analyzePhishingRisk({
-            address: receiverLifecycle.address,
+            address: receiverAddress,
             chain: 'monad',
-            interaction_type: 'transfer',
             transactions: senderSummary.records.map((item) => ({
               tx_hash: item.hash,
               timestamp: Math.floor(item.timestamp / 1000),
@@ -228,8 +224,7 @@ const SendPage = () => {
               contract_address: item.contractAddress ?? null,
               method_sig: item.methodSig ?? null,
               success: item.success ?? null
-            })),
-            lifecycle: receiverLifecycle.lifecycle
+            }))
           })
           setPhishingRisk(risk)
           const riskLevel = getNormalizedRiskLevel(risk)
