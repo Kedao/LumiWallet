@@ -145,7 +145,7 @@ class PhishingRiskResponse(BaseModel):
     risk_level: Literal["high", "medium", "low", "unknown", "高", "中", "低", "未知"] = Field(
         description="钓鱼风险等级。英文可用 high/medium/low/unknown，中文可用 高/中/低/未知。"
     )
-    summary: str = Field(description="钓鱼风险总结")
+    summary: str = Field(description="钓鱼风险总结,一句话总结清楚，主要聚焦在地址差异。不要列出地址，简短高效即可。")
     confidence: float = Field(ge=0, le=1, description="模型对钓鱼风险判断的置信度")
     most_similar_address: Optional[str] = Field(
         default=None,
