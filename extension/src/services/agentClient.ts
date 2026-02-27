@@ -306,17 +306,11 @@ const toApiSlippageRequest = (payload: SlippageRiskInput): ApiSlippageRiskReques
     throw new Error('token_pay_amount is required for /risk/slippage.')
   }
 
-  const extra = payload.extra_features
-  const extraTokenGetAmount =
-    extra && typeof extra === 'object' && typeof extra.expected_output_amount === 'string'
-      ? extra.expected_output_amount
-      : null
-
   const pool = payload.pool
     ? ({
       price_impact_pct: payload.pool.price_impact_pct ?? null,
-      token_pay_amount: payload.pool.token_pay_amount ?? tokenPayAmount,
-      token_get_amount: payload.pool.token_get_amount ?? extraTokenGetAmount,
+      token_pay_amount: payload.pool.token_pay_amount ?? null,
+      token_get_amount: payload.pool.token_get_amount ?? null,
       type: payload.pool.type ?? 'AMM'
     } satisfies ApiSlippagePoolStats)
     : undefined

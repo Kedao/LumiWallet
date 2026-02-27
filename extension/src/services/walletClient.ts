@@ -104,6 +104,8 @@ export interface SwapQuote {
 export interface SwapSlippagePoolRiskStats {
   poolAddress: string
   priceImpactPct: number | null
+  poolTokenPayAmount: string | null
+  poolTokenGetAmount: string | null
 }
 
 export interface LocalActivityInput {
@@ -1537,12 +1539,18 @@ export const fetchSwapSlippagePoolRiskStatsByInputAmount = async (
   const output = await getSwapOutputForExactInput(normalizedInput, inputAmount)
 
   let priceImpactPct: number | null = null
+  let poolTokenPayAmount: string | null = null
+  let poolTokenGetAmount: string | null = null
   try {
     const reserves = await ammContract.getReserves() as [bigint, bigint]
     const reserveMONRaw = reserves[0]
     const reserveEGoldRaw = reserves[1]
     const reserveInRaw = output.inputToken === 'MON' ? reserveMONRaw : reserveEGoldRaw
     const reserveOutRaw = output.inputToken === 'MON' ? reserveEGoldRaw : reserveMONRaw
+
+    poolTokenPayAmount = formatUnits(reserveInRaw, output.inputDecimals)
+    poolTokenGetAmount = formatUnits(reserveOutRaw, output.outputDecimals)
+
     if (reserveInRaw > 0n && reserveOutRaw > 0n) {
       const inputAmountFloat = Number(formatUnits(output.inputAmountRaw, output.inputDecimals))
       const reserveInFloat = Number(formatUnits(reserveInRaw, output.inputDecimals))
@@ -1569,11 +1577,15 @@ export const fetchSwapSlippagePoolRiskStatsByInputAmount = async (
     }
   } catch {
     priceImpactPct = null
+    poolTokenPayAmount = null
+    poolTokenGetAmount = null
   }
 
   return {
     poolAddress: AMM_CONTRACT_ADDRESS,
-    priceImpactPct
+    priceImpactPct,
+    poolTokenPayAmount,
+    poolTokenGetAmount
   }
 }
 
