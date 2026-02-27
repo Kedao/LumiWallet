@@ -470,11 +470,11 @@ const Layout = ({ children }: PropsWithChildren) => {
                 padding: '10px 8px',
                 borderRadius: 11,
                 fontSize: 12,
-                fontWeight: 700,
-                color: isActive ? '#0f3f5a' : '#304a64',
-                background: isActive ? '#e9f6ff' : '#e6eef9',
-                border: isActive ? '1px solid #9ec8e8' : '1px solid #bfd3e7',
-                boxShadow: isActive ? '0 2px 8px rgba(67, 129, 181, 0.18)' : 'none'
+                fontWeight: isActive ? 800 : 700,
+                color: isActive ? '#ffffff' : '#38516b',
+                background: isActive ? 'linear-gradient(135deg, #2f88c8, #1f8aa6)' : '#f1f5fb',
+                border: isActive ? '1px solid #2a7cb4' : '1px solid #c6d4e4',
+                boxShadow: isActive ? '0 6px 14px rgba(41, 124, 176, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28)' : 'none'
               })}
             >
               {item.label}

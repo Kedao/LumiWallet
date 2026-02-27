@@ -689,6 +689,14 @@ const validateAddress = (address: string): string => {
   }
 }
 
+const validateAddressIgnoreChecksum = (address: string): string => {
+  try {
+    return normalizeAddress(getAddress(address.trim().toLowerCase()))
+  } catch {
+    throw new Error('Invalid address format.')
+  }
+}
+
 const validatePrivateKey = (privateKey: string): string => {
   const normalized = normalizePrivateKey(privateKey)
   const prefixed = `0x${normalized}`
@@ -1496,7 +1504,7 @@ export const fetchAddressLifecycleInfo = async (
 }
 
 export const sendTransfer = async (to: string, amount: string): Promise<string> => {
-  const normalizedTo = validateAddress(to)
+  const normalizedTo = validateAddressIgnoreChecksum(to)
   const value = parseMonAmount(amount)
   const { wallet } = await getSelectedAccountWallet()
   const tx = await wallet.sendTransaction({
@@ -1507,7 +1515,7 @@ export const sendTransfer = async (to: string, amount: string): Promise<string> 
 }
 
 export const sendErc20Transfer = async (to: string, amount: string): Promise<string> => {
-  const normalizedTo = validateAddress(to)
+  const normalizedTo = validateAddressIgnoreChecksum(to)
   const { wallet } = await getSelectedAccountWallet()
   const decimals = await eGoldContract.decimals() as number
   const value = parseErc20Amount(amount, decimals)

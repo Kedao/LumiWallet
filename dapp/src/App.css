@@ -364,7 +364,32 @@
 .approve-form {
   margin-top: 0.9rem;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+}
+
+.approve-option {
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.78rem;
+}
+
+.approve-option-risky {
+  border-color: rgba(214, 83, 62, 0.35);
+  background: rgba(255, 246, 244, 0.9);
+}
+
+.approve-option-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.approve-option-desc {
+  margin-top: 0.2rem;
+  color: var(--text-subtle);
+  font-size: 0.84rem;
 }
 
 .approve-field {
@@ -400,7 +425,7 @@
 }
 
 .approve-actions {
-  margin-top: 0.1rem;
+  margin-top: 0.55rem;
 }
 
 .approve-hint {

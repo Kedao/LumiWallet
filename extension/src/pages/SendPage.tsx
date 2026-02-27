@@ -242,7 +242,7 @@ const SendPage = () => {
     setIsAnalyzingRisk(true)
 
     try {
-      const receiverAddress = getAddress(toAddress.trim())
+      const receiverAddress = getAddress(toAddress.trim().toLowerCase())
       const senderSummary = await fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 })
       try {
         const risk = await analyzePhishingRisk({
