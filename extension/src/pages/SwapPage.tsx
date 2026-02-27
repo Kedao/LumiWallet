@@ -86,10 +86,10 @@ const SwapPage = () => {
   const [slippageRiskWarning, setSlippageRiskWarning] = useState('')
   const [txHash, setTxHash] = useState('')
   const [isQuoting, setIsQuoting] = useState(false)
-  const [isReviewingSlippageRisk, setIsReviewingSlippageRisk] = useState(false)
+  const [isAnalyzingSlippageRisk, setIsAnalyzingSlippageRisk] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [slippageRisk, setSlippageRisk] = useState<SlippageRiskResponse | null>(null)
-  const [reviewedQuoteKey, setReviewedQuoteKey] = useState('')
+  const [pendingRiskQuoteKey, setPendingRiskQuoteKey] = useState('')
   const [swapCooldownSeconds, setSwapCooldownSeconds] = useState(0)
   const quoteRequestIdRef = useRef(0)
   const riskReviewRequestIdRef = useRef(0)
@@ -126,7 +126,7 @@ const SwapPage = () => {
     setQuoteError('')
     setSlippageRisk(null)
     setSlippageRiskWarning('')
-    setReviewedQuoteKey('')
+    setPendingRiskQuoteKey('')
     setSwapCooldownSeconds(0)
     riskReviewRequestIdRef.current += 1
     quoteRequestIdRef.current += 1
@@ -215,12 +215,14 @@ const SwapPage = () => {
   const currentQuoteKey = quote
     ? `${quote.inputToken}:${quote.outputToken}:${quote.inputAmount}:${quote.expectedOutputAmount}`
     : ''
-  const hasReviewedCurrentQuote = currentQuoteKey.length > 0 && reviewedQuoteKey === currentQuoteKey
+  const isPendingCurrentRiskConfirmation = currentQuoteKey.length > 0 && pendingRiskQuoteKey === currentQuoteKey
   const slippageRiskLevel = slippageRisk
     ? normalizeRiskLabel(slippageRisk.slippage_level ?? slippageRisk.exceed_slippage_probability_label)
     : null
   const isSwapCooldownActive =
-    hasReviewedCurrentQuote && swapCooldownSeconds > 0 && (slippageRiskLevel === 'high' || slippageRiskLevel === 'medium')
+    isPendingCurrentRiskConfirmation &&
+    swapCooldownSeconds > 0 &&
+    (slippageRiskLevel === 'high' || slippageRiskLevel === 'medium')
   const swapButtonBackground = getSlippageButtonBackground(slippageRisk)
   const canSubmitBase =
     Boolean(quote) &&
@@ -231,7 +233,7 @@ const SwapPage = () => {
     !isInsufficientBalance &&
     !isSubmitting &&
     expectedReceiveToken === receiveToken
-  const canSubmit = canSubmitBase && !isReviewingSlippageRisk && !isSwapCooldownActive
+  const canSubmit = canSubmitBase && !isAnalyzingSlippageRisk && !isSwapCooldownActive
 
   const handleSwap = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -256,78 +258,88 @@ const SwapPage = () => {
       return
     }
 
-    if (!hasReviewedCurrentQuote) {
-      const reviewRequestId = ++riskReviewRequestIdRef.current
-      setSlippageRisk(null)
-      setSwapCooldownSeconds(0)
-      setIsReviewingSlippageRisk(true)
+    const submitSwap = async () => {
+      setIsSubmitting(true)
       try {
-        const poolStats = await fetchSwapSlippagePoolRiskStatsByInputAmount(payToken, payAmount.trim())
-        const risk = await analyzeSlippageRisk({
-          pool_address: poolStats.poolAddress,
-          chain: 'monad',
-          token_pay_amount: quote.inputAmount,
-          interaction_type: 'swap',
-          pool: {
-            price_impact_pct: poolStats.priceImpactPct ?? null,
-            token_pay_amount: quote.inputAmount,
-            token_get_amount: quote.expectedOutputAmount,
-            type: 'AMM'
-          }
-        })
-        if (riskReviewRequestIdRef.current !== reviewRequestId) {
-          return
-        }
-        setSlippageRisk(risk)
-        setSwapCooldownSeconds(
-          (() => {
-            const normalized = normalizeRiskLabel(risk.slippage_level ?? risk.exceed_slippage_probability_label)
-            return normalized === 'high' || normalized === 'medium' ? 3 : 0
-          })()
-        )
-      } catch (riskError) {
-        if (riskReviewRequestIdRef.current !== reviewRequestId) {
-          return
-        }
+        const tx = await swapByInputAmount(payToken, payAmount.trim())
+        setTxHash(tx)
+        setPayAmount('')
+        setQuote(null)
+        setPendingRiskQuoteKey('')
         setSlippageRisk(null)
         setSwapCooldownSeconds(0)
-        setSlippageRiskWarning(
-          riskError instanceof Error ? riskError.message : 'Failed to analyze slippage risk.'
-        )
-      } finally {
-        if (riskReviewRequestIdRef.current === reviewRequestId) {
-          setReviewedQuoteKey(currentQuoteKey)
-          setIsReviewingSlippageRisk(false)
+
+        try {
+          const nextBalance = await fetchBalance()
+          setBalance(nextBalance)
+        } catch (balanceError) {
+          console.warn('Failed to refresh balance after swap', balanceError)
         }
+      } catch (swapError) {
+        if (swapError instanceof Error) {
+          setError(swapError.message)
+        } else {
+          setError('Swap failed.')
+        }
+      } finally {
+        setIsSubmitting(false)
       }
+    }
+
+    if (isPendingCurrentRiskConfirmation) {
+      await submitSwap()
       return
     }
 
-    setIsSubmitting(true)
+    const reviewRequestId = ++riskReviewRequestIdRef.current
+    setPendingRiskQuoteKey('')
+    setSlippageRisk(null)
+    setSwapCooldownSeconds(0)
+    setIsAnalyzingSlippageRisk(true)
     try {
-      const tx = await swapByInputAmount(payToken, payAmount.trim())
-      setTxHash(tx)
-      setPayAmount('')
-      setQuote(null)
-      setReviewedQuoteKey('')
+      const poolStats = await fetchSwapSlippagePoolRiskStatsByInputAmount(payToken, payAmount.trim())
+      const risk = await analyzeSlippageRisk({
+        pool_address: poolStats.poolAddress,
+        chain: 'monad',
+        token_pay_amount: quote.inputAmount,
+        interaction_type: 'swap',
+        pool: {
+          price_impact_pct: poolStats.priceImpactPct ?? null,
+          token_pay_amount: poolStats.poolTokenPayAmount,
+          token_get_amount: poolStats.poolTokenGetAmount,
+          type: 'AMM'
+        }
+      })
+      if (riskReviewRequestIdRef.current !== reviewRequestId) {
+        return
+      }
+      const normalized = normalizeRiskLabel(risk.slippage_level ?? risk.exceed_slippage_probability_label)
+      if (normalized === 'high' || normalized === 'medium') {
+        setSlippageRisk(risk)
+        setPendingRiskQuoteKey(currentQuoteKey)
+        setSwapCooldownSeconds(3)
+        return
+      }
       setSlippageRisk(null)
+      setPendingRiskQuoteKey('')
       setSwapCooldownSeconds(0)
-
-      try {
-        const nextBalance = await fetchBalance()
-        setBalance(nextBalance)
-      } catch (balanceError) {
-        console.warn('Failed to refresh balance after swap', balanceError)
+    } catch (riskError) {
+      if (riskReviewRequestIdRef.current !== reviewRequestId) {
+        return
       }
-    } catch (swapError) {
-      if (swapError instanceof Error) {
-        setError(swapError.message)
-      } else {
-        setError('Swap failed.')
-      }
+      setSlippageRisk(null)
+      setPendingRiskQuoteKey('')
+      setSwapCooldownSeconds(0)
+      setSlippageRiskWarning(
+        riskError instanceof Error ? riskError.message : 'Failed to analyze slippage risk.'
+      )
     } finally {
-      setIsSubmitting(false)
+      if (riskReviewRequestIdRef.current === reviewRequestId) {
+        setIsAnalyzingSlippageRisk(false)
+      }
     }
+
+    await submitSwap()
   }
 
   return (
@@ -354,7 +366,7 @@ const SwapPage = () => {
             setTxHash('')
             setSlippageRisk(null)
             setSlippageRiskWarning('')
-            setReviewedQuoteKey('')
+            setPendingRiskQuoteKey('')
             setSwapCooldownSeconds(0)
             riskReviewRequestIdRef.current += 1
           }}
@@ -409,7 +421,7 @@ const SwapPage = () => {
                   setPayAmount(event.target.value)
                   setSlippageRisk(null)
                   setSlippageRiskWarning('')
-                  setReviewedQuoteKey('')
+                  setPendingRiskQuoteKey('')
                   setSwapCooldownSeconds(0)
                   riskReviewRequestIdRef.current += 1
                 }}
@@ -583,15 +595,15 @@ const SwapPage = () => {
             opacity: canSubmit ? 1 : 0.6
           }}
         >
-          {isReviewingSlippageRisk
+          {isAnalyzingSlippageRisk
             ? 'Analyzing Slippage...'
             : isSubmitting
               ? 'Swapping...'
-              : hasReviewedCurrentQuote
+              : isPendingCurrentRiskConfirmation
                 ? isSwapCooldownActive
-                  ? `Swap Now (${swapCooldownSeconds}s)`
-                  : `Swap ${payToken} to ${receiveToken}`
-                : 'Review Slippage Risk'}
+                  ? `Confirm Swap (${swapCooldownSeconds}s)`
+                  : 'Confirm and Swap'
+                : 'Swap'}
         </button>
       </form>
     </section>

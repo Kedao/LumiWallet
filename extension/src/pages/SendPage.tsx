@@ -84,9 +84,9 @@ const SendPage = () => {
   const [error, setError] = useState('')
   const [historyWarning, setHistoryWarning] = useState('')
   const [txHash, setTxHash] = useState('')
-  const [isReviewingAddress, setIsReviewingAddress] = useState(false)
+  const [isAnalyzingRisk, setIsAnalyzingRisk] = useState(false)
   const [isSending, setIsSending] = useState(false)
-  const [reviewedAddress, setReviewedAddress] = useState('')
+  const [pendingRiskAddress, setPendingRiskAddress] = useState('')
   const [phishingRisk, setPhishingRisk] = useState<SecurityRiskResponse | null>(null)
   const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0)
 
@@ -166,15 +166,16 @@ const SendPage = () => {
   const isInsufficientBalance = parsedAmount !== null && parsedAmount > parsedAvailable
   const isAmountInvalid = amount.trim().length > 0 && parsedAmount === null
   const normalizedToAddress = toAddress.trim().toLowerCase()
-  const hasReviewedCurrentAddress = reviewedAddress.length > 0 && reviewedAddress === normalizedToAddress
+  const isPendingCurrentRiskConfirmation =
+    pendingRiskAddress.length > 0 && pendingRiskAddress === normalizedToAddress
   const riskAwareButtonBackground = getRiskAwareButtonBackground(phishingRisk)
   const normalizedRiskLevel = getNormalizedRiskLevel(phishingRisk)
   const isRiskCooldownActive =
-    hasReviewedCurrentAddress &&
+    isPendingCurrentRiskConfirmation &&
     sendCooldownSeconds > 0 &&
     (normalizedRiskLevel === 'high' || normalizedRiskLevel === 'medium')
   const isSubmitDisabled =
-    isReviewingAddress ||
+    isAnalyzingRisk ||
     isSending ||
     isRiskCooldownActive ||
     toAddress.trim().length === 0 ||
@@ -197,84 +198,104 @@ const SendPage = () => {
       return
     }
 
-    if (!hasReviewedCurrentAddress) {
-      if (!senderAddress) {
-        setError('No active sender account.')
-        return
-      }
-      setPhishingRisk(null)
-      setSendCooldownSeconds(0)
-      setIsReviewingAddress(true)
+    const sendTransaction = async () => {
+      setIsSending(true)
       try {
-        const receiverAddress = getAddress(toAddress.trim())
-        const senderSummary = await fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 })
-        try {
-          const risk = await analyzePhishingRisk({
-            address: receiverAddress,
-            chain: 'monad',
-            transactions: senderSummary.records.map((item) => ({
-              tx_hash: item.hash,
-              timestamp: Math.floor(item.timestamp / 1000),
-              from_address: item.from,
-              to_address: item.to,
-              value: item.phishingValue ?? item.value,
-              token_address: item.tokenAddress ?? null,
-              token_decimals: item.tokenDecimals ?? null,
-              tx_type: item.direction,
-              contract_address: item.contractAddress ?? null,
-              method_sig: item.methodSig ?? null,
-              success: item.success ?? null
-            }))
-          })
-          setPhishingRisk(risk)
-          const riskLevel = getNormalizedRiskLevel(risk)
-          setSendCooldownSeconds(riskLevel === 'high' || riskLevel === 'medium' ? 3 : 0)
-          console.info('Phishing risk review result', risk)
-        } catch (riskError) {
-          setPhishingRisk(null)
-          setSendCooldownSeconds(0)
-          console.warn('Failed to analyze phishing risk', riskError)
-          setHistoryWarning('Address activity reviewed, but phishing risk analysis request failed.')
-        }
-        setReviewedAddress(normalizedToAddress)
-      } catch (reviewError) {
+        const hash = await sendTokenTransfer(token, toAddress.trim(), amount.trim())
+        setTxHash(hash)
+        setAmount('')
+        setPendingRiskAddress('')
         setPhishingRisk(null)
         setSendCooldownSeconds(0)
-        if (reviewError instanceof Error) {
-          setError(reviewError.message)
+
+        try {
+          const nextBalance = await fetchBalance()
+          setBalance(nextBalance)
+        } catch (balanceError) {
+          console.warn('Failed to refresh balance after send', balanceError)
+        }
+      } catch (submitError) {
+        if (submitError instanceof Error) {
+          setError(submitError.message)
         } else {
-          setError('Failed to query recent transactions for this address.')
+          setError('Failed to send transaction.')
         }
       } finally {
-        setIsReviewingAddress(false)
+        setIsSending(false)
       }
+    }
+
+    if (isPendingCurrentRiskConfirmation) {
+      await sendTransaction()
       return
     }
 
-    setIsSending(true)
-    try {
-      const hash = await sendTokenTransfer(token, toAddress.trim(), amount.trim())
-      setTxHash(hash)
-      setAmount('')
-      setReviewedAddress('')
-      setPhishingRisk(null)
-      setSendCooldownSeconds(0)
-
-      try {
-        const nextBalance = await fetchBalance()
-        setBalance(nextBalance)
-      } catch (balanceError) {
-        console.warn('Failed to refresh balance after send', balanceError)
-      }
-    } catch (submitError) {
-      if (submitError instanceof Error) {
-        setError(submitError.message)
-      } else {
-        setError('Failed to send transaction.')
-      }
-    } finally {
-      setIsSending(false)
+    if (!senderAddress) {
+      setError('No active sender account.')
+      return
     }
+
+    setPendingRiskAddress('')
+    setPhishingRisk(null)
+    setSendCooldownSeconds(0)
+    setIsAnalyzingRisk(true)
+
+    try {
+      const receiverAddress = getAddress(toAddress.trim())
+      const senderSummary = await fetchRecentAddressTransactionSummary(senderAddress, { limit: 5 })
+      try {
+        const risk = await analyzePhishingRisk({
+          address: receiverAddress,
+          chain: 'monad',
+          transactions: senderSummary.records.map((item) => ({
+            tx_hash: item.hash,
+            timestamp: Math.floor(item.timestamp / 1000),
+            from_address: item.from,
+            to_address: item.to,
+            value: item.phishingValue ?? item.value,
+            token_address: item.tokenAddress ?? null,
+            token_decimals: item.tokenDecimals ?? null,
+            tx_type: item.direction,
+            contract_address: item.contractAddress ?? null,
+            method_sig: item.methodSig ?? null,
+            success: item.success ?? null
+          }))
+        })
+        const riskLevel = getNormalizedRiskLevel(risk)
+        console.info('Phishing risk review result', risk)
+
+        if (riskLevel === 'high' || riskLevel === 'medium') {
+          setPhishingRisk(risk)
+          setPendingRiskAddress(normalizedToAddress)
+          setSendCooldownSeconds(3)
+          return
+        }
+
+        setPhishingRisk(null)
+        setPendingRiskAddress('')
+        setSendCooldownSeconds(0)
+      } catch (riskError) {
+        setPhishingRisk(null)
+        setPendingRiskAddress('')
+        setSendCooldownSeconds(0)
+        console.warn('Failed to analyze phishing risk', riskError)
+        setHistoryWarning('Phishing risk analysis request failed. Sending directly.')
+      }
+    } catch (reviewError) {
+      setPhishingRisk(null)
+      setPendingRiskAddress('')
+      setSendCooldownSeconds(0)
+      if (reviewError instanceof Error) {
+        setError(reviewError.message)
+      } else {
+        setError('Failed to query recent transactions for this address.')
+      }
+      return
+    } finally {
+      setIsAnalyzingRisk(false)
+    }
+
+    await sendTransaction()
   }
 
   return (
@@ -300,6 +321,7 @@ const SendPage = () => {
               setToken(event.target.value as TokenOption)
               setError('')
               setTxHash('')
+              setPendingRiskAddress('')
               setPhishingRisk(null)
               setSendCooldownSeconds(0)
             }}
@@ -329,7 +351,7 @@ const SendPage = () => {
               setToAddress(event.target.value)
               setError('')
               setTxHash('')
-              setReviewedAddress('')
+              setPendingRiskAddress('')
               setPhishingRisk(null)
               setSendCooldownSeconds(0)
             }}
@@ -465,15 +487,15 @@ const SendPage = () => {
             opacity: isSubmitDisabled ? 0.6 : 1
           }}
         >
-          {isReviewingAddress
-            ? 'Checking Address Activity...'
+          {isAnalyzingRisk
+            ? 'Checking Risk...'
             : isSending
               ? 'Sending...'
-              : hasReviewedCurrentAddress
+              : isPendingCurrentRiskConfirmation
                 ? isRiskCooldownActive
-                  ? `Send Now (${sendCooldownSeconds}s)`
-                  : 'Send Now'
-                : 'Review Address Activity'}
+                  ? `Confirm Send (${sendCooldownSeconds}s)`
+                  : 'Confirm and Send'
+                : 'Send'}
         </button>
       </form>
     </section>
