@@ -27,7 +27,7 @@ const approveInputByPreset: Record<ApprovePreset, ApproveFormState> = {
     amount: '1',
   },
   risky: {
-    tokenAddress: '0x30b19e878B2FC9E28E3C3f5EB63dB1695337F3e6',
+    tokenAddress: '0xD6772E2655DE953DB6388cD94F703EFb483b375E',
     spender: FIXED_SPENDER,
     amount: 'max',
   },
