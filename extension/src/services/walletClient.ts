@@ -1250,7 +1250,7 @@ export const fetchHistory = async (): Promise<TransactionRecord[]> => {
       tokenSymbol: item.tokenAddress === EGOLD_CONTRACT_ADDRESS ? 'eGold' : 'MON',
       methodSig: item.methodSig ?? undefined,
       status: 'success',
-      to: item.to ?? undefined,
+      to: item.counterparty ?? undefined,
       hash: item.hash
     }))
   } catch {
@@ -1363,7 +1363,7 @@ export const fetchRecentAddressTransactionSummary = async (
       const tokenAddress = isTokenMethod ? to : null
       let tokenDecimals: number | null = null
       let phishingValue: string | null = null
-      if (tokenAddress) {
+      if (tokenAddress === EGOLD_CONTRACT_ADDRESS) {
         tokenDecimals = await getErc20TokenDecimals(tokenAddress)
         const amountParamIndex = methodId === ERC20_TRANSFER_FROM_METHOD_ID ? 2 : 1
         const tokenAmountRaw = parseUint256ParamFromCallData(input, amountParamIndex)

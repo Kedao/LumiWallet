@@ -70,7 +70,7 @@ class RiskService:
             most_similar_address=None,
             most_similar_similarity=0.0,
             most_similar_transactions=[],
-            similarity_method="weighted(prefix=0.4,suffix=0.4,levenshtein=0.2)",
+            similarity_method="max(prefix,suffix,levenshtein,head_bag_6)",
         )
 
     def phishing(self, req: PhishingRiskRequest) -> PhishingRiskResponse:

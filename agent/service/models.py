@@ -161,7 +161,7 @@ class PhishingRiskResponse(BaseModel):
         description="与最相似地址相关的最近交易详情，按 timestamp 倒序，最多 3 笔",
     )
     similarity_method: str = Field(
-        default="weighted(prefix=0.4,suffix=0.4,levenshtein=0.2)",
+        default="max(prefix,suffix,levenshtein,head_bag_6)",
         description="相似度计算方法说明",
     )
 
